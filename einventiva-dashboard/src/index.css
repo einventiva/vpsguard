@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  color-scheme: dark;
+}
+
+@layer base {
+  :root {
+    --background: 9 14% 5%;
+    --foreground: 0 0% 98%;
+    --card: 9 8% 11%;
+    --card-foreground: 0 0% 98%;
+    --popover: 9 8% 11%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
+    --secondary: 9 6% 18%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 9 6% 40%;
+    --muted-foreground: 0 0% 63.9%;
+    --accent: 9 6% 25%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 9 8% 18%;
+    --input: 9 8% 18%;
+    --ring: 0 0% 100%;
+    --radius: 0.375rem;
+
+    /* Monitoring colors */
+    --status-healthy: 132 63% 50%;
+    --status-warning: 45 93% 50%;
+    --status-critical: 0 84% 60%;
+    --status-info: 217 91% 60%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Custom scrollbar styling */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-zinc-950;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-zinc-700 rounded hover:bg-zinc-600;
+  }
+
+  /* Firefox scrollbar */
+  * {
+    scrollbar-color: hsl(228, 14%, 42%) hsl(0, 0%, 6%);
+    scrollbar-width: thin;
+  }
+}

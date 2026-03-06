@@ -1,0 +1,31 @@
+{
+  "name": "einventiva-monitor-backend",
+  "version": "1.0.0",
+  "description": "Node.js monitoring backend for einventiva-dashboard",
+  "main": "monitor.js",
+  "scripts": {
+    "start": "node monitor.js",
+    "dev": "node monitor.js",
+    "docker:build": "docker compose -f ../docker-compose.yml build",
+    "docker:up": "docker compose -f ../docker-compose.yml up -d",
+    "docker:down": "docker compose -f ../docker-compose.yml down",
+    "docker:logs": "docker compose -f ../docker-compose.yml logs -f backend",
+    "test": "API_TOKEN=test node --test test/*.test.js"
+  },
+  "keywords": [
+    "monitoring",
+    "einventiva",
+    "system-metrics",
+    "docker"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^12.6.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.18.2",
+    "node-notifier": "^10.0.1",
+    "socket.io": "^4.8.1"
+  }
+}

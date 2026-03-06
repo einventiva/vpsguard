@@ -1,0 +1,17 @@
+services:
+  backend:
+    build:
+      context: ./einventiva-dashboard-server
+      dockerfile: Dockerfile
+    container_name: einventiva-monitor-backend
+    ports:
+      - "3847:3847"
+    env_file:
+      - ./einventiva-dashboard-server/.env
+    volumes:
+      - ~/.ssh:/root/.ssh:ro
+      - backend-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  backend-data:
