@@ -10,6 +10,8 @@ import type {
   HistoryResponse,
   ScriptItem,
   ServerInfo,
+  PgBasicResponse,
+  PgDetailedResponse,
 } from '@/types'
 import { API_BASE, API_TOKEN } from './config'
 import { transformServerStatus } from './parsers'
@@ -299,6 +301,17 @@ export const api = {
     return fetchApi<any>(`/servers/${key}/test`, {
       method: 'POST',
     })
+  },
+
+  // PostgreSQL endpoints
+  async getPostgresBasic(server: ServerAlias): Promise<PgBasicResponse> {
+    return fetchApi<PgBasicResponse>(`/postgres/${server}`)
+  },
+
+  async getPostgresDetailed(server: ServerAlias, container: string, db?: string): Promise<PgDetailedResponse> {
+    const params = new URLSearchParams({ container })
+    if (db) params.set('db', db)
+    return fetchApi<PgDetailedResponse>(`/postgres/${server}/detailed?${params}`)
   },
 
   // Health check

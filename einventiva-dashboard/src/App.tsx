@@ -7,6 +7,7 @@ import { ScriptsPanel } from '@/components/ScriptsPanel'
 import { LogViewer } from '@/components/LogViewer'
 import { CrontabPanel } from '@/components/CrontabPanel'
 import { ServersPanel } from '@/components/ServersPanel'
+import { PostgresPanel } from '@/components/PostgresPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Toaster } from '@/components/ui/sonner'
 import { Button } from '@/components/ui/button'
@@ -14,6 +15,7 @@ import { ServerDetailPanel } from '@/components/ServerDetailPanel'
 import {
   Activity,
   Container,
+  Database,
   Terminal,
   FileText,
   CalendarClock,
@@ -26,11 +28,12 @@ import {
   ArrowLeft,
 } from 'lucide-react'
 
-type TabType = 'overview' | 'docker' | 'scripts' | 'crontab' | 'logs' | 'servers' | 'serverDetail'
+type TabType = 'overview' | 'docker' | 'postgres' | 'scripts' | 'crontab' | 'logs' | 'servers' | 'serverDetail'
 
 const navItems: Array<{ id: TabType; label: string; icon: React.ReactNode }> = [
   { id: 'overview', label: 'Overview', icon: <Activity className="w-4 h-4" /> },
   { id: 'docker', label: 'Docker', icon: <Container className="w-4 h-4" /> },
+  { id: 'postgres', label: 'PostgreSQL', icon: <Database className="w-4 h-4" /> },
   { id: 'scripts', label: 'Scripts', icon: <Terminal className="w-4 h-4" /> },
   { id: 'crontab', label: 'Crontab', icon: <CalendarClock className="w-4 h-4" /> },
   { id: 'logs', label: 'Logs', icon: <FileText className="w-4 h-4" /> },
@@ -212,6 +215,7 @@ function App() {
               </ErrorBoundary>
             )}
             {activeTab === 'docker' && <ErrorBoundary fallbackLabel="Docker panel failed"><DockerPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
+            {activeTab === 'postgres' && <ErrorBoundary fallbackLabel="PostgreSQL panel failed"><PostgresPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
             {activeTab === 'scripts' && <ErrorBoundary fallbackLabel="Scripts panel failed"><ScriptsPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
             {activeTab === 'crontab' && <ErrorBoundary fallbackLabel="Crontab panel failed"><CrontabPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
             {activeTab === 'logs' && <ErrorBoundary fallbackLabel="Log viewer failed"><LogViewer servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
