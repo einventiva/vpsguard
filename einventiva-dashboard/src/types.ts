@@ -118,6 +118,83 @@ export interface MetricDetailResponse {
   containers: MetricDetailEntry[]
 }
 
+// PostgreSQL types
+export interface PgDatabase {
+  name: string
+  sizeBytes: number
+  activeConnections: number
+}
+
+export interface PgContainer {
+  id: string
+  name: string
+  image: string
+  status: string
+  version: string
+  databases: PgDatabase[]
+  error: string | null
+}
+
+export interface PgBasicResponse {
+  server: string
+  timestamp: string
+  containers: PgContainer[]
+}
+
+export interface PgCacheHit {
+  datname: string
+  blks_hit: number
+  blks_read: number
+  cache_hit_ratio: number
+}
+
+export interface PgTable {
+  table: string
+  total_size: number
+  live_rows: number
+  dead_rows: number
+  last_vacuum: string | null
+  last_autovacuum: string | null
+}
+
+export interface PgActiveQuery {
+  pid: number
+  datname: string
+  usename: string
+  state: string
+  query: string
+  duration: number
+}
+
+export interface PgLock {
+  locktype: string
+  mode: string
+  granted: boolean
+  pid: number
+  relation: string
+}
+
+export interface PgReplication {
+  client_addr: string
+  state: string
+  sent_lsn: string
+  write_lsn: string
+  replay_lsn: string
+  sync_state: string
+}
+
+export interface PgDetailedResponse {
+  server: string
+  container: string
+  db: string
+  timestamp: string
+  cacheHit: PgCacheHit[]
+  tables: PgTable[]
+  activeQueries: PgActiveQuery[]
+  locks: PgLock[]
+  replication: PgReplication[]
+}
+
 export interface ScriptItem {
   id: string
   name: string

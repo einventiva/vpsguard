@@ -35,6 +35,7 @@ registerHandlers(io, getServers);
 app.use('/api', require('./routes/health')(getServers));
 app.use('/api', require('./routes/status')(getServers));
 app.use('/api', require('./routes/docker')(getServers));
+app.use('/api', require('./routes/postgres')(getServers));
 app.use('/api', require('./routes/scripts')(getServers));
 app.use('/api', require('./routes/servers')(getServers, setServers));
 app.use('/api', require('./routes/crontab')(getServers));
@@ -51,6 +52,8 @@ app.use((req, res) => {
       'GET /api/status': 'System metrics for all servers',
       'GET /api/docker/:server': 'Docker containers for a server',
       'GET /api/docker/:server/:container/logs': 'Logs for a container',
+      'GET /api/postgres/:server': 'PostgreSQL containers and basic stats',
+      'GET /api/postgres/:server/detailed?container=NAME': 'Detailed PostgreSQL stats',
       'POST /api/execute/:server': 'Execute a predefined script',
       'GET /api/scripts': 'List scripts',
       'POST /api/scripts': 'Create script',

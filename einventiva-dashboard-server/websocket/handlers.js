@@ -238,23 +238,24 @@ function registerHandlers(io, getServers) {
           socket.emit('wizard:step', { step: 'keygen', status: 'done', message: 'Keypair already exists, skipping' });
         }
 
-        // Step 6: Copy public key
+        // Step 6: Copy public key (via root to avoid PasswordAuthentication issues)
         socket.emit('wizard:output', { data: `\n── Step 6: Copying public key to ${newUser}@${ip} ──\n` });
-        socket.emit('wizard:output', { data: `  Using ssh-copy-id (fallback: manual append to authorized_keys)\n` });
+        socket.emit('wizard:output', { data: `  Using root SSH to install key into ~${newUser}/.ssh/authorized_keys\n` });
+        const pubKey = fs.readFileSync(`${keyPath}.pub`, 'utf-8').trim();
+        const installKeyCmd = [
+          `mkdir -p /home/${newUser}/.ssh`,
+          `echo '${escQ(pubKey)}' >> /home/${newUser}/.ssh/authorized_keys`,
+          `chmod 700 /home/${newUser}/.ssh`,
+          `chmod 600 /home/${newUser}/.ssh/authorized_keys`,
+          `chown -R ${newUser}:${newUser} /home/${newUser}/.ssh`,
+        ].join(' && ');
         const copyKey = await runStep('copy-key',
-          `sshpass -p '${escQ(newPassword)}' ssh-copy-id -i ${keyPath}.pub ${sshOpts} -p ${port} ${newUser}@${ip}`,
+          `sshpass -p '${escQ(rootPassword)}' ssh ${sshOpts} -p ${port} root@${ip} "${installKeyCmd.replace(/"/g, '\\"')}"`,
           20000
         );
         if (!copyKey) {
-          socket.emit('wizard:output', { data: 'ssh-copy-id failed, trying manual copy...\n' });
-          const pubKey = fs.readFileSync(`${keyPath}.pub`, 'utf-8').trim();
-          const manualCopy = await runStep('copy-key-manual',
-            `sshpass -p '${escQ(newPassword)}' ssh ${sshOpts} -p ${port} ${newUser}@${ip} "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '${escQ(pubKey)}' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"`
-          );
-          if (!manualCopy) {
-            socket.emit('wizard:error', { step: 'copy-key', error: 'Failed to copy SSH public key' });
-            return;
-          }
+          socket.emit('wizard:error', { step: 'copy-key', error: 'Failed to copy SSH public key' });
+          return;
         }
 
         // Step 7: Configure ~/.ssh/config
