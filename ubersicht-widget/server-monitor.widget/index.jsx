@@ -1,7 +1,7 @@
 import { css } from "uebersicht";
 
 const API_BASE = "http://localhost:3847/api";
-const API_TOKEN = "YOUR_API_TOKEN_HERE";
+const API_TOKEN = "einventiva-monitor-secret-2024";
 
 export const refreshFrequency = 15000;
 
