@@ -101,6 +101,9 @@ export interface CrontabEntry {
   command: string
   enabled: boolean
   raw: string
+  source?: 'user' | 'system'
+  user?: string
+  file?: string
 }
 
 export interface MetricDetailEntry {

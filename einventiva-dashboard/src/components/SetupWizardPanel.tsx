@@ -14,6 +14,15 @@ import {
   ChevronLeft,
   RotateCcw,
   Server,
+  Shield,
+  Terminal,
+  Key,
+  UserPlus,
+  FileKey,
+  Copy,
+  Settings,
+  Plug,
+  Database,
 } from 'lucide-react'
 
 interface SetupWizardPanelProps {
@@ -45,7 +54,7 @@ const STEP_ORDER = [
 ]
 
 export function SetupWizardPanel({ onClose, onComplete }: SetupWizardPanelProps) {
-  const [phase, setPhase] = useState<'form' | 'running' | 'done' | 'error'>('form')
+  const [phase, setPhase] = useState<'form' | 'preview' | 'running' | 'done' | 'error'>('form')
   const [serverKey, setServerKey] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [ip, setIp] = useState('')
@@ -114,13 +123,70 @@ export function SetupWizardPanel({ onClose, onComplete }: SetupWizardPanelProps)
   }
 
   const handleRetry = () => {
-    setPhase('form')
+    setPhase('preview')
     setSteps({})
     setOutput([])
     setErrorInfo(null)
   }
 
   const canSubmit = serverKey && displayName && ip && rootPassword && newUser && newPassword
+
+  const previewSteps = [
+    {
+      icon: <Shield className="w-4 h-4" />,
+      title: 'Validate inputs',
+      description: 'Verify all required fields are filled and the server key is unique.',
+      command: null,
+    },
+    {
+      icon: <Terminal className="w-4 h-4" />,
+      title: 'Check sshpass',
+      description: 'Verify that sshpass is installed locally (required for automated SSH login).',
+      command: 'which sshpass',
+    },
+    {
+      icon: <Plug className="w-4 h-4" />,
+      title: 'Test root SSH',
+      description: `Connect to root@${ip}:${port} using the provided password to verify access.`,
+      command: `sshpass -p '****' ssh [opts] -p ${port} root@${ip} "echo ok"`,
+    },
+    {
+      icon: <UserPlus className="w-4 h-4" />,
+      title: 'Create user & sudo',
+      description: `Create user "${newUser}" with sudo and docker group access. Set up passwordless sudo.`,
+      command: `useradd -m -s /bin/bash ${newUser} && chpasswd && usermod -aG sudo,docker ${newUser}`,
+    },
+    {
+      icon: <Key className="w-4 h-4" />,
+      title: 'Generate SSH keypair',
+      description: `Generate an ed25519 keypair at ~/.ssh/dashboard_${serverKey} for passwordless login.`,
+      command: `ssh-keygen -t ed25519 -f ~/.ssh/dashboard_${serverKey} -N ""`,
+    },
+    {
+      icon: <Copy className="w-4 h-4" />,
+      title: 'Copy public key',
+      description: `Install the public key into ~${newUser}/.ssh/authorized_keys on the remote server via root.`,
+      command: `cat ~/.ssh/dashboard_${serverKey}.pub >> /home/${newUser}/.ssh/authorized_keys`,
+    },
+    {
+      icon: <Settings className="w-4 h-4" />,
+      title: 'Configure SSH config',
+      description: `Add an alias "dashboard_${serverKey}" to ~/.ssh/config for quick access.`,
+      command: `Host dashboard_${serverKey}\n  HostName ${ip}\n  Port ${port}\n  User ${newUser}`,
+    },
+    {
+      icon: <FileKey className="w-4 h-4" />,
+      title: 'Test SSH via alias',
+      description: `Verify passwordless SSH connection using the new alias.`,
+      command: `ssh dashboard_${serverKey} "echo ok"`,
+    },
+    {
+      icon: <Database className="w-4 h-4" />,
+      title: 'Register in dashboard',
+      description: `Save the server configuration in the dashboard database and start monitoring.`,
+      command: null,
+    },
+  ]
 
   // Form phase
   if (phase === 'form') {
@@ -261,15 +327,82 @@ export function SetupWizardPanel({ onClose, onComplete }: SetupWizardPanelProps)
 
           <div className="pt-2">
             <Button
-              onClick={handleStart}
+              onClick={() => setPhase('preview')}
               disabled={!canSubmit}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
-              <Wand2 className="w-4 h-4 mr-2" />
-              Start Setup
+              <Eye className="w-4 h-4 mr-2" />
+              Preview Plan
             </Button>
           </div>
         </Card>
+      </div>
+    )
+  }
+
+  // Preview phase
+  if (phase === 'preview') {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center gap-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setPhase('form')}
+            className="text-zinc-400 hover:text-zinc-200"
+          >
+            <ChevronLeft className="w-4 h-4 mr-1" />
+            Back
+          </Button>
+          <h3 className="text-sm font-semibold text-zinc-300">
+            <Shield className="w-4 h-4 inline mr-2" />
+            Review Execution Plan
+          </h3>
+        </div>
+
+        <Card className="border-zinc-700 bg-zinc-900/50 p-4">
+          <div className="mb-4 p-3 rounded bg-blue-900/20 border border-blue-800/50">
+            <p className="text-xs text-blue-300">
+              Review the steps below before proceeding. The wizard will execute them in order on <span className="font-mono font-bold">{ip}:{port}</span> to provision user <span className="font-mono font-bold">{newUser}</span>.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            {previewSteps.map((step, i) => (
+              <div key={i} className="p-3 rounded border border-zinc-800 bg-zinc-900/80">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs text-zinc-500 font-mono w-5">{i + 1}.</span>
+                  <span className="text-blue-400">{step.icon}</span>
+                  <span className="text-sm font-semibold text-zinc-200">{step.title}</span>
+                </div>
+                <p className="text-xs text-zinc-400 ml-7 mb-1">{step.description}</p>
+                {step.command && (
+                  <pre className="text-xs text-zinc-500 font-mono ml-7 bg-black/40 rounded px-2 py-1 mt-1 whitespace-pre-wrap">
+                    $ {step.command}
+                  </pre>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <div className="flex gap-3">
+          <Button
+            variant="outline"
+            onClick={() => setPhase('form')}
+            className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+          >
+            <ChevronLeft className="w-4 h-4 mr-2" />
+            Edit
+          </Button>
+          <Button
+            onClick={handleStart}
+            className="bg-green-600 hover:bg-green-700 text-white"
+          >
+            <Wand2 className="w-4 h-4 mr-2" />
+            Confirm & Execute
+          </Button>
+        </div>
       </div>
     )
   }

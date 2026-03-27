@@ -109,6 +109,8 @@ server.listen(PORT, () => {
 // Graceful shutdown
 function shutdown(signal) {
   log(`${signal} received, shutting down`);
+  const { closeAllMuxConnections } = require('./services/ssh');
+  closeAllMuxConnections();
   db.closeDB();
   process.exit(0);
 }
