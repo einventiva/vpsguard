@@ -1,5 +1,8 @@
 const { exec } = require('child_process');
 const { promisify } = require('util');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 const { log } = require('./logger');
 const { COMMAND_TIMEOUT } = require('../config');
 
@@ -26,9 +29,30 @@ function injectSudoPassword(command, password) {
   return command.replace(/sudo /g, `echo '${password.replace(/'/g, "'\\''")}' | sudo -S `);
 }
 
+// ─── SSH Multiplexing (ControlMaster) ──────────────────────────────
+const CONTROL_DIR = '/tmp/dshmux';
+
+function ensureControlDir() {
+  if (!fs.existsSync(CONTROL_DIR)) {
+    fs.mkdirSync(CONTROL_DIR, { mode: 0o700, recursive: true });
+  }
+}
+
+function getControlPath(serverAlias) {
+  // Keep path short — macOS has a 104-byte limit on Unix socket paths
+  return path.join(CONTROL_DIR, serverAlias);
+}
+
+function getMuxOpts(serverAlias) {
+  const controlPath = getControlPath(serverAlias);
+  return `-o ControlMaster=auto -o ControlPath=${controlPath} -o ControlPersist=120 -o LogLevel=ERROR`;
+}
+
 async function executeSSHCommand(serverAlias, command, timeout = COMMAND_TIMEOUT) {
+  ensureControlDir();
   try {
-    const sshCommand = `ssh ${serverAlias} "${command}"`;
+    const muxOpts = getMuxOpts(serverAlias);
+    const sshCommand = `ssh ${muxOpts} ${serverAlias} "${command}"`;
     log(`Executing SSH command`, { server: serverAlias, command: command.substring(0, 100) });
     const { stdout, stderr } = await execPromise(sshCommand, { timeout });
     if (stderr && !stderr.includes('Warning')) {
@@ -41,4 +65,21 @@ async function executeSSHCommand(serverAlias, command, timeout = COMMAND_TIMEOUT
   }
 }
 
-module.exports = { executeSSHCommand, filterWarnings, isSSHWarning, injectSudoPassword, exec };
+function closeMuxConnection(serverAlias) {
+  const controlPath = getControlPath(serverAlias);
+  exec(`ssh -o ControlPath=${controlPath} -O exit ${serverAlias} 2>/dev/null`);
+}
+
+function closeAllMuxConnections() {
+  try {
+    if (!fs.existsSync(CONTROL_DIR)) return;
+    const files = fs.readdirSync(CONTROL_DIR);
+    for (const file of files) {
+      const fullPath = path.join(CONTROL_DIR, file);
+      exec(`ssh -o ControlPath=${fullPath} -O exit dummy 2>/dev/null`);
+    }
+    log('Closed all SSH mux connections');
+  } catch (_) { /* ignore cleanup errors */ }
+}
+
+module.exports = { executeSSHCommand, filterWarnings, isSSHWarning, injectSudoPassword, closeMuxConnection, closeAllMuxConnections, exec };

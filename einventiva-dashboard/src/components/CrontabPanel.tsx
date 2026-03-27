@@ -18,6 +18,7 @@ import {
   CalendarClock,
   ChevronLeft,
   Loader,
+  Lock,
   Pause,
   Pencil,
   Play,
@@ -501,81 +502,111 @@ export function CrontabPanel({ servers, serverKeys }: CrontabPanelProps) {
           </div>
         ) : (
           <div className="divide-y divide-zinc-800">
-            {entries.map((entry) => (
-              <div
-                key={entry.index}
-                className={`p-4 hover:bg-zinc-800/30 transition-colors ${
-                  !entry.enabled ? 'opacity-50' : ''
-                }`}
-              >
-                <div className="flex items-start gap-4">
-                  {/* Toggle */}
-                  <button
-                    onClick={() => handleToggle(entry.index)}
-                    disabled={busy === entry.index}
-                    className={`mt-1 flex-shrink-0 w-8 h-5 rounded-full relative transition-colors ${
-                      entry.enabled ? 'bg-green-600' : 'bg-zinc-700'
-                    }`}
-                    title={entry.enabled ? 'Disable' : 'Enable'}
-                  >
-                    <span
-                      className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-                        entry.enabled ? 'left-3.5' : 'left-0.5'
-                      }`}
-                    />
-                  </button>
+            {entries.map((entry) => {
+              const isSystem = entry.source === 'system'
+              return (
+                <div
+                  key={`${entry.source}-${entry.index}`}
+                  className={`p-4 hover:bg-zinc-800/30 transition-colors ${
+                    !entry.enabled ? 'opacity-50' : ''
+                  }`}
+                >
+                  <div className="flex items-start gap-4">
+                    {/* Toggle (only for user crons) */}
+                    {isSystem ? (
+                      <div className="mt-1 flex-shrink-0 w-8 h-5 flex items-center justify-center" title="System cron (read-only)">
+                        <Lock className="w-3.5 h-3.5 text-zinc-600" />
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleToggle(entry.index)}
+                        disabled={busy === entry.index}
+                        className={`mt-1 flex-shrink-0 w-8 h-5 rounded-full relative transition-colors ${
+                          entry.enabled ? 'bg-green-600' : 'bg-zinc-700'
+                        }`}
+                        title={entry.enabled ? 'Disable' : 'Enable'}
+                      >
+                        <span
+                          className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                            entry.enabled ? 'left-3.5' : 'left-0.5'
+                          }`}
+                        />
+                      </button>
+                    )}
 
-                  {/* Schedule + command */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-3 mb-1">
-                      <span className="font-mono text-xs text-blue-400 bg-blue-900/20 px-2 py-0.5 rounded">
-                        {entry.minute} {entry.hour} {entry.dayOfMonth} {entry.month}{' '}
-                        {entry.dayOfWeek}
-                      </span>
-                      <span className="text-xs text-zinc-400">
-                        {describeCron(
-                          entry.minute,
-                          entry.hour,
-                          entry.dayOfMonth,
-                          entry.month,
-                          entry.dayOfWeek
+                    {/* Schedule + command */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-3 mb-1">
+                        <span className={`font-mono text-xs px-2 py-0.5 rounded ${
+                          isSystem
+                            ? 'text-amber-400 bg-amber-900/20'
+                            : 'text-blue-400 bg-blue-900/20'
+                        }`}>
+                          {entry.minute} {entry.hour} {entry.dayOfMonth} {entry.month}{' '}
+                          {entry.dayOfWeek}
+                        </span>
+                        <span className="text-xs text-zinc-400">
+                          {describeCron(
+                            entry.minute,
+                            entry.hour,
+                            entry.dayOfMonth,
+                            entry.month,
+                            entry.dayOfWeek
+                          )}
+                        </span>
+                        {isSystem && (
+                          <span className="text-[10px] text-amber-500 bg-amber-900/30 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider">
+                            system
+                          </span>
                         )}
-                      </span>
+                        {entry.file && (
+                          <span className="text-[10px] text-zinc-500 font-mono">
+                            {entry.file}
+                          </span>
+                        )}
+                      </div>
+                      <p className="font-mono text-xs text-zinc-300 truncate">
+                        {entry.user && (
+                          <span className="text-zinc-500">{entry.user} </span>
+                        )}
+                        {entry.command}
+                      </p>
                     </div>
-                    <p className="font-mono text-xs text-zinc-300 truncate">
-                      {entry.command}
-                    </p>
-                  </div>
 
-                  {/* Actions */}
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => openEditor(entry)}
-                      className="text-zinc-400 hover:text-zinc-200 h-8 w-8 p-0"
-                      title="Edit"
-                    >
-                      <Pencil className="w-3.5 h-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(entry.index)}
-                      disabled={busy === entry.index}
-                      className="text-zinc-400 hover:text-red-400 h-8 w-8 p-0"
-                      title="Delete"
-                    >
-                      {busy === entry.index ? (
-                        <Loader className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-3.5 h-3.5" />
+                    {/* Actions (only for user crons) */}
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {!isSystem && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => openEditor(entry)}
+                            className="text-zinc-400 hover:text-zinc-200 h-8 w-8 p-0"
+                            title="Edit"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(entry.index)}
+                            disabled={busy === entry.index}
+                            className="text-zinc-400 hover:text-red-400 h-8 w-8 p-0"
+                            title="Delete"
+                          >
+                            {busy === entry.index ? (
+                              <Loader className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </Button>
+                        </>
                       )}
-                    </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </Card>
