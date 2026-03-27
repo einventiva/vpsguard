@@ -1,6 +1,6 @@
 const express = require('express');
 const { log, handleError } = require('../services/logger');
-const { getCrontabEntries, writeCrontab } = require('../services/crontab');
+const { getCrontabEntries, getAllCrontabEntries, writeCrontab } = require('../services/crontab');
 
 function createRouter(getServers) {
   const router = express.Router();
@@ -16,13 +16,15 @@ function createRouter(getServers) {
         return res.status(404).json({ error: `Server '${serverKey}' not found` });
       }
 
-      const entries = await getCrontabEntries(serverKey, getServers);
+      const { userEntries, systemEntries, all } = await getAllCrontabEntries(serverKey, getServers);
       res.json({
         server: serverKey,
         name: SERVERS[serverKey].displayName,
         timestamp: new Date().toISOString(),
-        count: entries.length,
-        entries,
+        count: all.length,
+        entries: all,
+        userCount: userEntries.length,
+        systemCount: systemEntries.length,
       });
     } catch (error) {
       handleError(res, error, `Failed to list crontab for '${req.params.server}'`);
