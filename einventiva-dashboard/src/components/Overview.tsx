@@ -56,7 +56,7 @@ export function Overview({ data, loading, error, servers, serverKeys, onServerCl
 
   const getSystemHealth = () => {
     const anyOffline = entries.some(([, s]) => !s.online)
-    const anyAlerts = entries.some(([, s]) => s.cpu_percent > 80 || s.memory_percent > 85)
+    const anyAlerts = entries.some(([, s]) => s.cpu_percent > 80 || s.memory_percent > 85 || s.disk_percent > 90)
 
     if (anyOffline) {
       return {

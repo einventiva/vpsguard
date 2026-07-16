@@ -44,12 +44,12 @@ function getControlPath(serverAlias) {
 }
 
 function getMuxOpts(serverAlias) {
+  ensureControlDir();
   const controlPath = getControlPath(serverAlias);
   return `-o ControlMaster=auto -o ControlPath=${controlPath} -o ControlPersist=120 -o LogLevel=ERROR`;
 }
 
 async function executeSSHCommand(serverAlias, command, timeout = COMMAND_TIMEOUT) {
-  ensureControlDir();
   try {
     const muxOpts = getMuxOpts(serverAlias);
     const sshCommand = `ssh ${muxOpts} ${serverAlias} "${command}"`;
@@ -82,4 +82,4 @@ function closeAllMuxConnections() {
   } catch (_) { /* ignore cleanup errors */ }
 }
 
-module.exports = { executeSSHCommand, filterWarnings, isSSHWarning, injectSudoPassword, closeMuxConnection, closeAllMuxConnections, exec };
+module.exports = { executeSSHCommand, filterWarnings, isSSHWarning, injectSudoPassword, getMuxOpts, closeMuxConnection, closeAllMuxConnections, exec };
