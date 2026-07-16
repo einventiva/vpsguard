@@ -30,6 +30,8 @@ export interface DockerContainer {
   memPerc: string
   blockIO: string
   netIO: string
+  restartCount: number
+  oomKilled: boolean
 }
 
 export interface ScriptResult {
@@ -78,7 +80,7 @@ export interface MetricEntry {
 export interface Alert {
   id: number
   server: string
-  type: 'cpu' | 'memory' | 'disk' | 'offline'
+  type: 'cpu' | 'memory' | 'disk' | 'offline' | 'disk-eta' | 'cron'
   severity: 'warning' | 'critical'
   message: string
   value: number | null
@@ -156,6 +158,10 @@ export interface CrontabEntry {
   source?: 'user' | 'system'
   user?: string
   file?: string
+  // Execution watch (from syslog): null lastRun = never seen in logs
+  lastRun?: string | null
+  intervalMs?: number | null
+  overdue?: boolean
 }
 
 export interface MetricDetailEntry {
