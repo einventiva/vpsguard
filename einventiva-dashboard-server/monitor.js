@@ -9,7 +9,7 @@ const { log } = require('./services/logger');
 const { handleError } = require('./services/logger');
 const { httpAuth, socketAuth } = require('./middleware/auth');
 const { registerHandlers } = require('./websocket/handlers');
-const { startMetricsLoop, startPruneLoop } = require('./services/backgroundJobs');
+const { startMetricsLoop, startPruneLoop, startRollupLoop } = require('./services/backgroundJobs');
 
 // ─── Express + HTTP Server ──────────────────────────────────────────
 const app = express();
@@ -42,6 +42,7 @@ app.use('/api', require('./routes/crontab')(getServers));
 app.use('/api', require('./routes/history')(getServers));
 app.use('/api', require('./routes/alerts')());
 app.use('/api', require('./routes/thresholds')(getServers));
+app.use('/api', require('./routes/projections')(getServers));
 
 // 404 handler
 app.use((req, res) => {
@@ -61,8 +62,9 @@ app.use((req, res) => {
       'POST /api/scripts': 'Create script',
       'PUT /api/scripts/:id': 'Update script',
       'DELETE /api/scripts/:id': 'Delete script',
-      'GET /api/history/:server': 'Metrics history for a server',
-      'GET /api/history/:server/detail?ts=TIMESTAMP': 'Metric detail (drill-down)',
+      'GET /api/history/:server': 'Metrics history (range=1h|6h|24h|7d|30d|90d|1y or since=ISO)',
+      'GET /api/history/:server/detail?ts=TIMESTAMP': 'Metric detail (drill-down; window=SECONDS finds nearest)',
+      'GET /api/projections': 'Disk-full ETA and memory slope per server',
       'GET /api/executions': 'Script execution history',
       'GET /api/alerts': 'Alert history (active=1 for open alerts only)',
       'POST /api/alerts/:id/ack': 'Acknowledge an alert',
@@ -104,6 +106,7 @@ if (dbServers) {
 
 startMetricsLoop(io, getServers);
 startPruneLoop();
+startRollupLoop();
 
 server.listen(PORT, () => {
   log(`Server started on http://localhost:${PORT}`);

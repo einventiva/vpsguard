@@ -108,10 +108,39 @@ export interface ThresholdsResponse {
   effective: Record<string, Thresholds>
 }
 
+export type HistoryRange = '1h' | '6h' | '24h' | '7d' | '30d' | '90d' | '1y'
+
 export interface HistoryResponse {
   server: string
   count: number
   entries: MetricEntry[]
+  range?: HistoryRange
+  granularity?: string
+  bucketSeconds?: number
+}
+
+export interface DiskProjection {
+  current: number | null
+  slopePerDay: number | null
+  etaDays: number | null
+  insufficient: boolean
+}
+
+export interface MemoryProjection {
+  slopePerHour: number | null
+  r2: number | null
+  trendingUp: boolean
+  insufficient: boolean
+}
+
+export interface ServerProjection {
+  disk: DiskProjection
+  memory: MemoryProjection
+}
+
+export interface ProjectionsResponse {
+  timestamp: string
+  servers: Record<string, ServerProjection>
 }
 
 export interface CrontabEntry {

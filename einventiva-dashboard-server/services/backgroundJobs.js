@@ -9,6 +9,7 @@ const { sendWebhook } = require('./notify');
 const { setCache } = require('./cache');
 const {
   METRICS_INTERVAL, PRUNE_INTERVAL, PRUNE_STARTUP_DELAY, PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS,
+  ROLLUP_INTERVAL, ROLLUP_STARTUP_DELAY, ROLLUP_KEEP_DAYS,
   ALERT_SAMPLES_TO_OPEN, ALERT_SAMPLES_TO_RESOLVE,
 } = require('../config');
 
@@ -161,4 +162,18 @@ function startPruneLoop() {
   setInterval(prune, PRUNE_INTERVAL);
 }
 
-module.exports = { fetchAllServerStatus, startMetricsLoop, startPruneLoop };
+function startRollupLoop() {
+  const rollup = () => {
+    try {
+      const result = db.rollupHourly();
+      const pruned = db.pruneRollup(ROLLUP_KEEP_DAYS);
+      log('Hourly rollup done', { upserted: result.upserted, pruned: pruned.changes });
+    } catch (e) {
+      log('Rollup failed', { error: e.message });
+    }
+  };
+  setTimeout(rollup, ROLLUP_STARTUP_DELAY);
+  setInterval(rollup, ROLLUP_INTERVAL);
+}
+
+module.exports = { fetchAllServerStatus, startMetricsLoop, startPruneLoop, startRollupLoop };
