@@ -99,24 +99,36 @@ function createRouter(getServers) {
       log(`Executing script`, { server: serverKey, script, command: command.substring(0, 100) });
 
       const startTime = Date.now();
-      const output = await executeSSHCommand(serverConfig.alias, command, SCRIPT_TIMEOUT);
+      try {
+        const output = await executeSSHCommand(serverConfig.alias, command, SCRIPT_TIMEOUT);
 
-      db.logExecution({
-        scriptId: script,
-        server: serverKey,
-        exitCode: 0,
-        startedAt: new Date(startTime).toISOString(),
-        durationMs: Date.now() - startTime,
-      });
+        db.logExecution({
+          scriptId: script,
+          server: serverKey,
+          exitCode: 0,
+          startedAt: new Date(startTime).toISOString(),
+          durationMs: Date.now() - startTime,
+        });
 
-      res.json({
-        server: serverKey,
-        script,
-        timestamp: new Date().toISOString(),
-        success: true,
-        output,
-        outputLength: output.length
-      });
+        res.json({
+          server: serverKey,
+          script,
+          timestamp: new Date().toISOString(),
+          success: true,
+          output,
+          outputLength: output.length
+        });
+      } catch (execError) {
+        // exec() puts the remote exit code on error.code; fall back to 1
+        db.logExecution({
+          scriptId: script,
+          server: serverKey,
+          exitCode: typeof execError.code === 'number' ? execError.code : 1,
+          startedAt: new Date(startTime).toISOString(),
+          durationMs: Date.now() - startTime,
+        });
+        throw execError;
+      }
     } catch (error) {
       handleError(res, error, `Failed to execute script '${req.body.script}'`);
     }

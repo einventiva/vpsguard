@@ -52,6 +52,7 @@ function spansMultipleDays(ts1: string, ts2: string): boolean {
 export function ServerDetailPanel({ serverKey, serverInfo, serverStatus }: ServerDetailPanelProps) {
   const [data, setData] = useState<MetricEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [historyError, setHistoryError] = useState<string | null>(null)
 
   // Selection state (click-drag on chart) — stores idx values
   const [dragStart, setDragStart] = useState<number | null>(null)
@@ -81,7 +82,10 @@ export function ServerDetailPanel({ serverKey, serverInfo, serverStatus }: Serve
       try {
         const response = await api.getHistory(serverKey)
         setData(response.entries || [])
-      } catch { /* silently fail */ }
+        setHistoryError(null)
+      } catch (err) {
+        setHistoryError(err instanceof Error ? err.message : 'Failed to load history')
+      }
       finally { setLoading(false) }
     }
     fetchHistory()
@@ -206,7 +210,9 @@ export function ServerDetailPanel({ serverKey, serverInfo, serverStatus }: Serve
         setProcesses(detail.processes || [])
         setContainers(detail.containers || [])
         setBreakdownTime(peakTimestamp)
-      } catch { /* silently fail */ }
+      } catch (err) {
+        console.error(`Failed to load breakdown for ${serverKey}:`, err)
+      }
       finally { setBreakdownLoading(false) }
     }
     fetchBreakdown()
@@ -319,7 +325,9 @@ export function ServerDetailPanel({ serverKey, serverInfo, serverStatus }: Serve
         </div>
 
         {chartData.length === 0 ? (
-          <div className="h-40 flex items-center justify-center text-zinc-500 text-sm">No history data yet.</div>
+          <div className={`h-40 flex items-center justify-center text-sm ${historyError ? 'text-red-400' : 'text-zinc-500'}`}>
+            {historyError ? `Failed to load history: ${historyError}` : 'No history data yet.'}
+          </div>
         ) : (
           <>
             {/* Main chart — click-drag to select analysis range */}

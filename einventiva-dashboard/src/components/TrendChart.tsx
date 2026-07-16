@@ -23,6 +23,7 @@ interface TrendChartProps {
 export function TrendChart({ server, title, mini = false, onClick }: TrendChartProps) {
   const [data, setData] = useState<MetricEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   // Latest breakdown state
   const [processes, setProcesses] = useState<MetricDetailEntry[]>([])
@@ -36,8 +37,9 @@ export function TrendChart({ server, title, mini = false, onClick }: TrendChartP
       try {
         const response = await api.getHistory(server)
         setData(response.entries || [])
-      } catch {
-        // silently fail
+        setError(null)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load history')
       } finally {
         setLoading(false)
       }
@@ -66,8 +68,8 @@ export function TrendChart({ server, title, mini = false, onClick }: TrendChartP
         setProcesses(detail.processes || [])
         setContainers(detail.containers || [])
         setBreakdownTime(latestTs)
-      } catch {
-        // silently fail
+      } catch (err) {
+        console.error(`Failed to load breakdown for ${server}:`, err)
       } finally {
         setBreakdownLoading(false)
       }
@@ -102,8 +104,8 @@ export function TrendChart({ server, title, mini = false, onClick }: TrendChartP
     return (
       <Card className="border-zinc-700 bg-zinc-900/50 p-4">
         <h4 className="text-sm font-semibold text-zinc-300 mb-2">{title} — Trends</h4>
-        <div className="h-40 flex items-center justify-center text-zinc-500 text-sm">
-          No history data yet. Metrics are collected every 15s.
+        <div className={`h-40 flex items-center justify-center text-sm ${error ? 'text-red-400' : 'text-zinc-500'}`}>
+          {error ? `Failed to load history: ${error}` : 'No history data yet. Metrics are collected every 15s.'}
         </div>
       </Card>
     )

@@ -38,9 +38,9 @@ export function DockerPanel({ servers, serverKeys }: DockerPanelProps) {
   const [logsLoading, setLogsLoading] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
 
-  const fetchContainers = async (srv: ServerAlias) => {
+  const fetchContainers = async (srv: ServerAlias, background = false) => {
     try {
-      setLoading(true)
+      if (!background) setLoading(true)
       setError(null)
       const data = await api.getContainers(srv)
       setContainers(data)
@@ -71,6 +71,8 @@ export function DockerPanel({ servers, serverKeys }: DockerPanelProps) {
 
   useEffect(() => {
     fetchContainers(server)
+    const interval = setInterval(() => fetchContainers(server, true), 30000)
+    return () => clearInterval(interval)
   }, [server])
 
   const handleContainerClick = (container: DockerContainer) => {
