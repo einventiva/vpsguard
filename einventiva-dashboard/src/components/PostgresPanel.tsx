@@ -32,9 +32,9 @@ export function PostgresPanel({ servers, serverKeys }: PostgresPanelProps) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchBasic = async (srv: ServerAlias) => {
+  const fetchBasic = async (srv: ServerAlias, background = false) => {
     try {
-      setLoading(true)
+      if (!background) setLoading(true)
       setError(null)
       const data = await api.getPostgresBasic(srv)
       setContainers(data.containers)
@@ -47,6 +47,8 @@ export function PostgresPanel({ servers, serverKeys }: PostgresPanelProps) {
 
   useEffect(() => {
     fetchBasic(server)
+    const interval = setInterval(() => fetchBasic(server, true), 60000)
+    return () => clearInterval(interval)
   }, [server])
 
   return (

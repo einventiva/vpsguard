@@ -56,8 +56,8 @@ export function useServerData(refreshInterval: number = 15000): UseServerDataRet
     try {
       const s = await api.getServers()
       setServers(s)
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error('Failed to fetch server list:', err)
     }
   }, [])
 
@@ -73,29 +73,33 @@ export function useServerData(refreshInterval: number = 15000): UseServerDataRet
     // Use shared socket
     const socket = getSharedSocket()
 
-    socket.on('connect', () => {
+    const onConnect = () => {
       setWsConnected(true)
       if (fallbackRef.current) {
         clearInterval(fallbackRef.current)
         fallbackRef.current = null
       }
-    })
+    }
 
-    socket.on('disconnect', () => {
+    const onDisconnect = () => {
       setWsConnected(false)
       if (!fallbackRef.current) {
         fallbackRef.current = setInterval(fetchData, refreshInterval)
       }
-    })
+    }
 
-    socket.on('metrics:update', (rawData: any) => {
+    const onMetricsUpdate = (rawData: any) => {
       const transformed = transformRawStatus(rawData)
       if (transformed) {
         setData(transformed)
         setLoading(false)
         setError(null)
       }
-    })
+    }
+
+    socket.on('connect', onConnect)
+    socket.on('disconnect', onDisconnect)
+    socket.on('metrics:update', onMetricsUpdate)
 
     socketRef.current = socket
 
@@ -107,9 +111,11 @@ export function useServerData(refreshInterval: number = 15000): UseServerDataRet
     }
 
     return () => {
-      socket.off('connect')
-      socket.off('disconnect')
-      socket.off('metrics:update')
+      // Pass handler refs: the socket is shared, a bare off() would
+      // also remove listeners registered by other hooks
+      socket.off('connect', onConnect)
+      socket.off('disconnect', onDisconnect)
+      socket.off('metrics:update', onMetricsUpdate)
       releaseSharedSocket()
       socketRef.current = null
       if (fallbackRef.current) {
