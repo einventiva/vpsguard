@@ -1,33 +1,21 @@
 const express = require('express');
+const db = require('../db');
 const { log, handleError } = require('../services/logger');
 const { getCached, setCache } = require('../services/cache');
 const { executeSSHCommand, filterWarnings } = require('../services/ssh');
-
-// Detect the postgres user for a container via POSTGRES_USER env var
-async function detectPgUser(alias, containerName) {
-  try {
-    const raw = await executeSSHCommand(
-      alias,
-      `docker exec ${containerName} printenv POSTGRES_USER 2>/dev/null || echo postgres`,
-      5000
-    );
-    const user = filterWarnings(raw).trim().split('\n').pop().trim();
-    return user || 'postgres';
-  } catch (_) {
-    return 'postgres';
-  }
-}
+const { detectPgUser, psqlViaB64, discoverPgContainers } = require('../services/pg');
 
 // Clean SSH output: remove warnings, keep only data lines
 function cleanOutput(raw) {
   return filterWarnings(raw);
 }
 
-// Build a shell command that base64-encodes the SQL to avoid all quoting/escaping issues
-function psqlViaB64(container, pgUser, sql, dbName = 'postgres') {
-  const b64 = Buffer.from(sql).toString('base64');
-  return `echo ${b64} | base64 -d | docker exec -i ${container} psql -U ${pgUser} -d ${dbName} -t -A`;
-}
+// Named ranges for the container-level history series (~150-300 points)
+const PG_RANGES = {
+  '24h': { ms: 24 * 3600e3, bucket: null },
+  '7d':  { ms: 7 * 86400e3, bucket: 3600 },
+  '30d': { ms: 30 * 86400e3, bucket: 4 * 3600 },
+};
 
 function createRouter(getServers) {
   const router = express.Router();
@@ -50,21 +38,13 @@ function createRouter(getServers) {
       const serverConfig = SERVERS[serverKey];
 
       // Detect postgres containers
-      const psOutput = await executeSSHCommand(
-        serverConfig.alias,
-        "docker ps --format '{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}' 2>/dev/null | grep -i postgres"
-      ).catch(() => '');
+      const rawContainers = await discoverPgContainers(serverConfig.alias);
 
-      if (!psOutput.trim()) {
+      if (rawContainers.length === 0) {
         const result = { server: serverKey, timestamp: new Date().toISOString(), containers: [] };
         setCache(cacheKey, result, 30000);
         return res.json(result);
       }
-
-      const rawContainers = psOutput.trim().split('\n').filter(Boolean).map(line => {
-        const [id, name, image, ...statusParts] = line.split('|');
-        return { id: id.trim(), name: name.trim(), image: image.trim(), status: statusParts.join('|').trim() };
-      });
 
       // Query each container for basic db info + version
       const containers = await Promise.allSettled(
@@ -115,6 +95,38 @@ function createRouter(getServers) {
       res.json(result);
     } catch (error) {
       handleError(res, error, `Failed to retrieve PostgreSQL info for server '${req.params.server}'`);
+    }
+  });
+
+  // Container-level time series from the 5-min sampler
+  router.get('/postgres/:server/history', (req, res) => {
+    try {
+      const { server: serverKey } = req.params;
+      const { container, range } = req.query;
+      const SERVERS = getServers();
+
+      if (!SERVERS[serverKey]) {
+        return res.status(404).json({ error: `Server '${serverKey}' not found` });
+      }
+      if (!container || !/^[a-zA-Z0-9_.-]+$/.test(container)) {
+        return res.status(400).json({ error: 'Invalid or missing container name' });
+      }
+      const spec = PG_RANGES[range || '24h'];
+      if (!spec) {
+        return res.status(400).json({ error: `Invalid range. Valid: ${Object.keys(PG_RANGES).join(', ')}` });
+      }
+
+      const since = new Date(Date.now() - spec.ms).toISOString();
+      const entries = db.getPgHistory(serverKey, container, since, spec.bucket);
+      res.json({
+        server: serverKey,
+        container,
+        range: range || '24h',
+        count: entries.length,
+        entries,
+      });
+    } catch (error) {
+      handleError(res, error, 'Failed to retrieve PostgreSQL history');
     }
   });
 
