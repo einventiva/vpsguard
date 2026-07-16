@@ -81,6 +81,8 @@ function parseDockerContainer(dockerData: any): DockerContainer {
     memPerc: dockerData.MemPerc || '',
     blockIO: dockerData.BlockIO || '',
     netIO: dockerData.NetIO || '',
+    restartCount: dockerData.RestartCount ?? 0,
+    oomKilled: dockerData.OOMKilled ?? false,
   }
 }
 

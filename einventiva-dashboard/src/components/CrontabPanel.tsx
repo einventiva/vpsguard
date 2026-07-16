@@ -39,6 +39,16 @@ const PRESETS = [
   { label: 'Cada 15 min', minute: '*/15', hour: '*', dayOfMonth: '*', month: '*', dayOfWeek: '*' },
 ]
 
+function timeAgo(iso: string): string {
+  const sec = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
+  if (sec < 60) return `${sec}s ago`
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min}m ago`
+  const hours = Math.floor(min / 60)
+  if (hours < 48) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
 function describeCron(m: string, h: string, dom: string, mon: string, dow: string): string {
   const parts: string[] = []
 
@@ -557,6 +567,16 @@ export function CrontabPanel({ servers, serverKeys }: CrontabPanelProps) {
                         {isSystem && (
                           <span className="text-[10px] text-amber-500 bg-amber-900/30 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider">
                             system
+                          </span>
+                        )}
+                        {entry.lastRun && (
+                          <span className="text-[10px] text-zinc-500 font-mono" title={new Date(entry.lastRun).toLocaleString()}>
+                            last run {timeAgo(entry.lastRun)}
+                          </span>
+                        )}
+                        {entry.overdue && (
+                          <span className="text-[10px] text-red-400 bg-red-900/30 border border-red-800/50 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider" title="No execution seen within twice its expected interval">
+                            overdue
                           </span>
                         )}
                         {entry.file && (

@@ -35,6 +35,12 @@ const ROLLUP_INTERVAL = 60 * 60 * 1000;
 const ROLLUP_STARTUP_DELAY = 90 * 1000;
 // Hourly aggregates are tiny (~26k rows/server/year) — keep a year of trends
 const ROLLUP_KEEP_DAYS = parseInt(process.env.ROLLUP_KEEP_DAYS || '365');
+
+// Slow checks (hourly): disk-full ETA alert and overdue-cron alert.
+// Delayed past the first rollup so projections have data to work with.
+const SLOW_CHECK_INTERVAL = 60 * 60 * 1000;
+const SLOW_CHECK_STARTUP_DELAY = 3 * 60 * 1000;
+const DISK_ETA_ALERT_DAYS = parseInt(process.env.DISK_ETA_ALERT_DAYS || '14');
 const PRUNE_KEEP_DAYS = parseInt(process.env.PRUNE_KEEP_DAYS || '30');
 // Per-process/container detail is only useful for recent diagnosis and
 // grows ~35x faster than metrics_history — keep it short
@@ -120,6 +126,9 @@ module.exports = {
   ROLLUP_INTERVAL,
   ROLLUP_STARTUP_DELAY,
   ROLLUP_KEEP_DAYS,
+  SLOW_CHECK_INTERVAL,
+  SLOW_CHECK_STARTUP_DELAY,
+  DISK_ETA_ALERT_DAYS,
   parseServersFromEnv,
   loadServersFromDB,
   seedServersFromEnv,

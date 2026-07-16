@@ -40,6 +40,8 @@ const TYPE_LABELS: Record<Alert['type'], string> = {
   memory: 'MEM',
   disk: 'DISK',
   offline: 'OFFLINE',
+  'disk-eta': 'DISK ETA',
+  cron: 'CRON',
 }
 
 function AlertRow({ alert, serverName, onAck }: { alert: Alert; serverName: string; onAck: (id: number) => void }) {
@@ -54,14 +56,15 @@ function AlertRow({ alert, serverName, onAck }: { alert: Alert; serverName: stri
   return (
     <div className={`flex items-center gap-3 px-4 py-3 border-b border-zinc-800/70 last:border-b-0 ${active ? '' : 'opacity-60'}`}>
       <Icon className={`w-4 h-4 flex-shrink-0 ${iconColor}`} />
-      <Badge variant="outline" className="border-zinc-700 text-zinc-400 font-mono text-[10px] w-16 justify-center flex-shrink-0">
+      <Badge variant="outline" className="border-zinc-700 text-zinc-400 font-mono text-[10px] w-20 justify-center flex-shrink-0">
         {TYPE_LABELS[alert.type]}
       </Badge>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-zinc-200 truncate">{alert.message}</p>
         <p className="text-xs text-zinc-500 font-mono">
           {serverName} · {formatWhen(alert.started_at)} · {active ? 'ongoing' : 'lasted'} {formatDuration(alert.started_at, alert.resolved_at)}
-          {alert.value != null && alert.threshold != null && ` · peak ${alert.value.toFixed(1)}% (limit ${alert.threshold}%)`}
+          {alert.value != null && alert.threshold != null && ['cpu', 'memory', 'disk'].includes(alert.type) && ` · peak ${alert.value.toFixed(1)}% (limit ${alert.threshold}%)`}
+          {alert.type === 'disk-eta' && alert.value != null && ` · ~${Math.round(alert.value)}d left (alert at ${alert.threshold}d)`}
         </p>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">

@@ -25,9 +25,10 @@ function createRouter(getServers) {
       }
 
       const serverConfig = SERVERS[serverKey];
-      const command = 'docker ps --format \'{{json .}}\'; echo "---STATS---"; docker stats --no-stream --format \'{{json .}}\' 2>/dev/null';
+      const command = 'docker ps --format \'{{json .}}\'; echo "---STATS---"; docker stats --no-stream --format \'{{json .}}\' 2>/dev/null; echo "---INSPECT---"; docker ps -q | xargs -r docker inspect --format \'{{.Name}}|{{.RestartCount}}|{{.State.OOMKilled}}\' 2>/dev/null';
       const output = await executeSSHCommand(serverConfig.alias, command);
-      const [psOutput, statsOutput] = output.split('---STATS---');
+      const [psOutput, rest] = output.split('---STATS---');
+      const [statsOutput, inspectOutput] = (rest || '').split('---INSPECT---');
       const containers = parseDockerPsOutput(psOutput || '');
 
       const statsMap = {};
@@ -40,8 +41,24 @@ function createRouter(getServers) {
           } catch (_) {}
         }
       }
+
+      // Restart counts and OOM kills — a crash-looping container shows
+      // "Up 2 minutes" in ps and looks healthy without these
+      const inspectMap = {};
+      if (inspectOutput) {
+        for (const line of inspectOutput.trim().split('\n')) {
+          const [name, restarts, oom] = line.split('|');
+          if (!name) continue;
+          inspectMap[name.replace(/^\//, '')] = {
+            restartCount: parseInt(restarts) || 0,
+            oomKilled: oom === 'true',
+          };
+        }
+      }
+
       for (const c of containers) {
-        const stat = statsMap[c.Names ? c.Names.replace(/^\//, '') : ''];
+        const name = c.Names ? c.Names.replace(/^\//, '') : '';
+        const stat = statsMap[name];
         if (stat) {
           c.CPUPerc = stat.CPUPerc || '0%';
           c.MemUsage = stat.MemUsage || '';
@@ -49,6 +66,9 @@ function createRouter(getServers) {
           c.BlockIO = stat.BlockIO || '';
           c.NetIO = stat.NetIO || '';
         }
+        const inspect = inspectMap[name];
+        c.RestartCount = inspect ? inspect.restartCount : 0;
+        c.OOMKilled = inspect ? inspect.oomKilled : false;
       }
 
       const result = {
