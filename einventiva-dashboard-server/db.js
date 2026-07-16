@@ -122,6 +122,17 @@ function initDB() {
       disk REAL,
       updated_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS metrics_rollup (
+      server TEXT NOT NULL,
+      bucket_start TEXT NOT NULL,
+      cpu_avg REAL, cpu_max REAL,
+      memory_avg REAL, memory_max REAL,
+      disk_avg REAL, disk_max REAL,
+      samples INTEGER DEFAULT 0,
+      online_samples INTEGER DEFAULT 0,
+      PRIMARY KEY (server, bucket_start)
+    );
   `);
 
   // Seed scripts if table is empty
@@ -231,6 +242,70 @@ function getMetrics(server, since) {
   ).all(server);
 }
 
+// Raw samples averaged into N-second buckets — keeps chart payloads
+// bounded regardless of range. Excludes offline (all-zero) samples from
+// averages via the online flag on cpu/memory.
+function getMetricsBucketed(server, since, bucketSeconds) {
+  // CAST the bound param: better-sqlite3 binds JS numbers as REAL and
+  // INTEGER / REAL would skip the floor that creates the buckets
+  return db.prepare(`
+    SELECT
+      strftime('%Y-%m-%dT%H:%M:%SZ', (CAST(strftime('%s', timestamp) AS INTEGER) / CAST(? AS INTEGER)) * CAST(? AS INTEGER), 'unixepoch') AS timestamp,
+      round(avg(cpu), 2) AS cpu,
+      round(avg(memory), 2) AS memory,
+      round(avg(disk), 2) AS disk,
+      CASE WHEN avg(online) >= 0.5 THEN 1 ELSE 0 END AS online
+    FROM metrics_history
+    WHERE server = ? AND timestamp >= ?
+    GROUP BY 1
+    ORDER BY 1
+  `).all(bucketSeconds, bucketSeconds, server, since);
+}
+
+// ─── Hourly rollups ─────────────────────────────────────────────────
+// Idempotent: re-aggregates every hour present in raw history and
+// upserts, so it can run at any cadence and backfills automatically.
+function rollupHourly() {
+  const result = db.prepare(`
+    INSERT INTO metrics_rollup (server, bucket_start, cpu_avg, cpu_max, memory_avg, memory_max, disk_avg, disk_max, samples, online_samples)
+    SELECT
+      server,
+      strftime('%Y-%m-%dT%H:00:00Z', timestamp) AS bucket_start,
+      round(avg(cpu), 2), round(max(cpu), 2),
+      round(avg(memory), 2), round(max(memory), 2),
+      round(avg(disk), 2), round(max(disk), 2),
+      count(*), sum(online)
+    FROM metrics_history
+    GROUP BY server, bucket_start
+    ON CONFLICT(server, bucket_start) DO UPDATE SET
+      cpu_avg = excluded.cpu_avg, cpu_max = excluded.cpu_max,
+      memory_avg = excluded.memory_avg, memory_max = excluded.memory_max,
+      disk_avg = excluded.disk_avg, disk_max = excluded.disk_max,
+      samples = excluded.samples, online_samples = excluded.online_samples
+  `).run();
+  return { upserted: result.changes };
+}
+
+function getRollup(server, since, bucketSeconds = 3600) {
+  return db.prepare(`
+    SELECT
+      strftime('%Y-%m-%dT%H:%M:%SZ', (CAST(strftime('%s', bucket_start) AS INTEGER) / CAST(? AS INTEGER)) * CAST(? AS INTEGER), 'unixepoch') AS timestamp,
+      round(avg(cpu_avg), 2) AS cpu,
+      round(avg(memory_avg), 2) AS memory,
+      round(avg(disk_avg), 2) AS disk,
+      CASE WHEN sum(online_samples) * 2 >= sum(samples) THEN 1 ELSE 0 END AS online
+    FROM metrics_rollup
+    WHERE server = ? AND bucket_start >= ?
+    GROUP BY 1
+    ORDER BY 1
+  `).all(bucketSeconds, bucketSeconds, server, since);
+}
+
+function pruneRollup(keepDays) {
+  const cutoff = new Date(Date.now() - keepDays * 24 * 60 * 60 * 1000).toISOString();
+  return db.prepare('DELETE FROM metrics_rollup WHERE bucket_start < ?').run(cutoff);
+}
+
 function pruneOldMetrics(keepDays, detailKeepDays = keepDays) {
   const cutoff = new Date(Date.now() - keepDays * 24 * 60 * 60 * 1000).toISOString();
   const detailCutoff = new Date(Date.now() - detailKeepDays * 24 * 60 * 60 * 1000).toISOString();
@@ -252,6 +327,16 @@ function appendMetricDetails(server, timestamp, details) {
     }
   });
   insertMany(details);
+}
+
+// Nearest detail timestamp at or after ts, within windowSeconds — lets
+// the drill-down work when the chart shows bucketed/rolled-up points
+function findDetailTimestamp(server, timestamp, windowSeconds) {
+  const end = new Date(new Date(timestamp).getTime() + windowSeconds * 1000).toISOString();
+  const row = db.prepare(
+    'SELECT timestamp FROM metrics_detail WHERE server = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp LIMIT 1'
+  ).get(server, timestamp, end);
+  return row ? row.timestamp : null;
 }
 
 function getMetricDetails(server, timestamp) {
@@ -414,10 +499,16 @@ module.exports = {
   // Metrics
   appendMetric,
   getMetrics,
+  getMetricsBucketed,
   pruneOldMetrics,
+  // Rollups
+  rollupHourly,
+  getRollup,
+  pruneRollup,
   // Detail
   appendMetricDetails,
   getMetricDetails,
+  findDetailTimestamp,
   // Executions
   logExecution,
   getExecutions,

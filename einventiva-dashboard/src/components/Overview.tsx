@@ -1,4 +1,4 @@
-import type { ServerData, ServerInfo, Thresholds } from '@/types'
+import type { ServerData, ServerInfo, Thresholds, ServerProjection } from '@/types'
 import { ServerCard } from './ServerCard'
 import { TrendChart } from './TrendChart'
 import { Card } from '@/components/ui/card'
@@ -12,10 +12,11 @@ interface OverviewProps {
   servers: Record<string, ServerInfo>
   serverKeys: string[]
   effectiveThresholds?: (serverKey: string) => Thresholds
+  projections?: Record<string, ServerProjection>
   onServerClick?: (serverKey: string) => void
 }
 
-export function Overview({ data, loading, error, servers, serverKeys, effectiveThresholds, onServerClick }: OverviewProps) {
+export function Overview({ data, loading, error, servers, serverKeys, effectiveThresholds, projections, onServerClick }: OverviewProps) {
   const thresholdsFor = effectiveThresholds ?? (() => DEFAULT_THRESHOLDS)
   if (error) {
     return (
@@ -126,6 +127,7 @@ export function Overview({ data, loading, error, servers, serverKeys, effectiveT
             server={status}
             title={servers[key]?.displayName || key}
             thresholds={thresholdsFor(key)}
+            projection={projections?.[key]}
             onClick={onServerClick ? () => onServerClick(key) : undefined}
           />
         ))}
