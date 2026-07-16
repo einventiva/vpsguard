@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useServerData } from '@/hooks/useServerData'
 import { useAlerts } from '@/hooks/useAlerts'
 import { useThresholds } from '@/hooks/useThresholds'
+import { useProjections } from '@/hooks/useProjections'
 import { Overview } from '@/components/Overview'
 import { DockerPanel } from '@/components/DockerPanel'
 import { ScriptsPanel } from '@/components/ScriptsPanel'
@@ -51,6 +52,7 @@ function App() {
   const { data, loading, error, refetch, wsConnected, servers, serverKeys, refetchServers } = useServerData(15000)
   const alertsApi = useAlerts()
   const thresholdsApi = useThresholds()
+  const projections = useProjections()
 
   const navigateToServerDetail = (key: string) => {
     setSelectedServer(key)
@@ -211,6 +213,7 @@ function App() {
                   servers={servers}
                   serverKeys={serverKeys}
                   effectiveThresholds={thresholdsApi.effectiveFor}
+                  projections={projections}
                   onServerClick={navigateToServerDetail}
                 />
               </ErrorBoundary>

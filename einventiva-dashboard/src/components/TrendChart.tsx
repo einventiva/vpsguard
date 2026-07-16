@@ -31,11 +31,11 @@ export function TrendChart({ server, title, mini = false, onClick }: TrendChartP
   const [breakdownTime, setBreakdownTime] = useState<string | null>(null)
   const [breakdownLoading, setBreakdownLoading] = useState(true)
 
-  // Fetch history
+  // Fetch history — 6h of 2-min buckets (~180 points)
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const response = await api.getHistory(server)
+        const response = await api.getHistory(server, { range: '6h' })
         setData(response.entries || [])
         setError(null)
       } catch (err) {
@@ -59,7 +59,7 @@ export function TrendChart({ server, title, mini = false, onClick }: TrendChartP
 
     const fetchBreakdown = async () => {
       try {
-        const response = await api.getHistory(server)
+        const response = await api.getHistory(server, { range: '1h' })
         const entries = response.entries || []
         if (entries.length === 0) return
 
