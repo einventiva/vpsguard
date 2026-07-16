@@ -5,11 +5,14 @@ const { METRICS_COMMAND, parseSystemMetrics, parseCpuPercent } = require('./metr
 const { sendNativeNotification } = require('./alerts');
 const { createAlertEngine } = require('./alertEngine');
 const { resolveThresholds } = require('./thresholds');
+const { computeProjections } = require('./projections');
+const { getCronStatus } = require('./cronWatch');
 const { sendWebhook } = require('./notify');
 const { setCache } = require('./cache');
 const {
   METRICS_INTERVAL, PRUNE_INTERVAL, PRUNE_STARTUP_DELAY, PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS,
   ROLLUP_INTERVAL, ROLLUP_STARTUP_DELAY, ROLLUP_KEEP_DAYS,
+  SLOW_CHECK_INTERVAL, SLOW_CHECK_STARTUP_DELAY, DISK_ETA_ALERT_DAYS,
   ALERT_SAMPLES_TO_OPEN, ALERT_SAMPLES_TO_RESOLVE,
 } = require('../config');
 
@@ -162,6 +165,75 @@ function startPruneLoop() {
   setInterval(prune, PRUNE_INTERVAL);
 }
 
+// Open/resolve an alert managed outside the per-sample engine (hourly
+// checks need no hysteresis — the condition is already smoothed)
+function transitionAlert(io, { server, type, active, severity, message, value, threshold }) {
+  const open = db.getOpenAlert(server, type);
+  if (active && !open) {
+    const row = db.openAlert({ server, type, severity, message, value, threshold });
+    log('Alert opened', { server, type, value });
+    io.emit('alert:opened', row);
+    sendNativeNotification(row, 'opened');
+    sendWebhook('opened', row);
+  } else if (!active && open) {
+    const row = db.resolveAlert(open.id);
+    log('Alert resolved', { server, type, id: open.id });
+    io.emit('alert:resolved', row);
+    sendNativeNotification(row, 'resolved');
+    sendWebhook('resolved', row);
+  }
+}
+
+const shortCmd = (cmd) => (cmd.length > 40 ? `${cmd.slice(0, 40)}…` : cmd);
+
+async function runSlowChecks(io, getServers) {
+  const SERVERS = getServers();
+  for (const [key, svr] of Object.entries(SERVERS)) {
+    // Disk-full projection alert
+    try {
+      const proj = computeProjections([key])[key];
+      const eta = proj.disk.etaDays;
+      const active = eta != null && eta <= DISK_ETA_ALERT_DAYS;
+      transitionAlert(io, {
+        server: key,
+        type: 'disk-eta',
+        active,
+        severity: active && eta <= 7 ? 'critical' : 'warning',
+        message: active
+          ? `${svr.displayName} disk projected full in ~${Math.round(eta)}d (+${proj.disk.slopePerDay}%/day)`
+          : '',
+        value: eta,
+        threshold: DISK_ETA_ALERT_DAYS,
+      });
+    } catch (e) {
+      log('Disk ETA check failed', { server: key, error: e.message });
+    }
+
+    // Overdue cron alert
+    try {
+      const { entries } = await getCronStatus(key, getServers);
+      const overdue = entries.filter(en => en.overdue);
+      transitionAlert(io, {
+        server: key,
+        type: 'cron',
+        active: overdue.length > 0,
+        severity: 'warning',
+        message: `${svr.displayName}: ${overdue.length} cron job(s) overdue: ${overdue.map(o => shortCmd(o.command)).join(' | ')}`,
+        value: overdue.length,
+        threshold: null,
+      });
+    } catch (e) {
+      log('Cron watch check failed', { server: key, error: e.message });
+    }
+  }
+}
+
+function startSlowCheckLoop(io, getServers) {
+  const run = () => runSlowChecks(io, getServers).catch(e => log('Slow checks failed', { error: e.message }));
+  setTimeout(run, SLOW_CHECK_STARTUP_DELAY);
+  setInterval(run, SLOW_CHECK_INTERVAL);
+}
+
 function startRollupLoop() {
   const rollup = () => {
     try {
@@ -176,4 +248,4 @@ function startRollupLoop() {
   setInterval(rollup, ROLLUP_INTERVAL);
 }
 
-module.exports = { fetchAllServerStatus, startMetricsLoop, startPruneLoop, startRollupLoop };
+module.exports = { fetchAllServerStatus, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, runSlowChecks };
