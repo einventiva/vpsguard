@@ -76,13 +76,16 @@ export interface MetricEntry {
 }
 
 export interface Alert {
+  id: number
   server: string
   type: 'cpu' | 'memory' | 'disk' | 'offline'
   severity: 'warning' | 'critical'
   message: string
-  value?: number
-  threshold?: number
-  timestamp: string
+  value: number | null
+  threshold: number | null
+  started_at: string
+  resolved_at: string | null
+  acknowledged_at: string | null
 }
 
 export interface HistoryResponse {

@@ -20,6 +20,14 @@ const ALERT_THRESHOLDS = {
   disk: 90
 };
 
+// Hysteresis: consecutive samples over threshold to open an alert /
+// clean samples to resolve it (at METRICS_INTERVAL=15s: 30s / 1min)
+const ALERT_SAMPLES_TO_OPEN = parseInt(process.env.ALERT_SAMPLES_TO_OPEN || '2');
+const ALERT_SAMPLES_TO_RESOLVE = parseInt(process.env.ALERT_SAMPLES_TO_RESOLVE || '4');
+
+// Optional: POST { event, alert, sentAt } here on open/resolve
+const ALERT_WEBHOOK_URL = process.env.ALERT_WEBHOOK_URL || '';
+
 const METRICS_INTERVAL = 15000;
 const PRUNE_INTERVAL = 24 * 60 * 60 * 1000;
 const PRUNE_STARTUP_DELAY = 60 * 1000;
@@ -97,6 +105,9 @@ module.exports = {
   SCRIPT_TIMEOUT,
   CORS_ORIGINS,
   ALERT_THRESHOLDS,
+  ALERT_SAMPLES_TO_OPEN,
+  ALERT_SAMPLES_TO_RESOLVE,
+  ALERT_WEBHOOK_URL,
   METRICS_INTERVAL,
   PRUNE_INTERVAL,
   PRUNE_STARTUP_DELAY,

@@ -1,88 +1,73 @@
 const notifier = require('node-notifier');
-const { ALERT_THRESHOLDS } = require('../config');
 const { parseCpuPercent } = require('./metrics');
 
-let previousAlertState = {};
-
-function checkAlerts(serverKey, serverDisplayName, metrics) {
-  const alerts = [];
-  const now = new Date().toISOString();
-
-  if (!metrics || metrics.status === 'error') {
-    alerts.push({
-      server: serverKey,
+// Pure evaluation: which thresholds does this sample breach right now?
+// Lifecycle (open/resolve with hysteresis) lives in alertEngine.js.
+function evaluateBreaches(serverDisplayName, data, thresholds) {
+  if (!data || data.status === 'error') {
+    return [{
       type: 'offline',
       severity: 'critical',
       message: `${serverDisplayName} is offline`,
-      timestamp: now
-    });
-    return alerts;
+      value: null,
+      threshold: null,
+    }];
   }
 
-  const parsed = metrics.metrics || {};
+  const breaches = [];
+  const parsed = data.metrics || {};
 
-  // CPU alert
   const cpuPercent = parseCpuPercent(parsed.cpu);
-  if (cpuPercent > ALERT_THRESHOLDS.cpu) {
-    alerts.push({
-      server: serverKey,
+  if (cpuPercent > thresholds.cpu) {
+    breaches.push({
       type: 'cpu',
       severity: 'warning',
       message: `${serverDisplayName} CPU at ${cpuPercent.toFixed(1)}%`,
       value: cpuPercent,
-      threshold: ALERT_THRESHOLDS.cpu,
-      timestamp: now
+      threshold: thresholds.cpu,
     });
   }
 
-  // Memory alert
   const mem = parsed.memory || {};
   if (mem.total && mem.used) {
     const memPercent = (mem.used / mem.total) * 100;
-    if (memPercent > ALERT_THRESHOLDS.memory) {
-      alerts.push({
-        server: serverKey,
+    if (memPercent > thresholds.memory) {
+      breaches.push({
         type: 'memory',
         severity: 'warning',
         message: `${serverDisplayName} Memory at ${memPercent.toFixed(1)}%`,
         value: memPercent,
-        threshold: ALERT_THRESHOLDS.memory,
-        timestamp: now
+        threshold: thresholds.memory,
       });
     }
   }
 
-  // Disk alert
   const diskPercent = parseInt((parsed.disk?.percentUsed || '0').replace('%', ''));
-  if (diskPercent > ALERT_THRESHOLDS.disk) {
-    alerts.push({
-      server: serverKey,
+  if (diskPercent > thresholds.disk) {
+    breaches.push({
       type: 'disk',
       severity: 'critical',
       message: `${serverDisplayName} Disk at ${diskPercent}%`,
       value: diskPercent,
-      threshold: ALERT_THRESHOLDS.disk,
-      timestamp: now
+      threshold: thresholds.disk,
     });
   }
 
-  return alerts;
+  return breaches;
 }
 
-function sendNativeNotification(alert) {
-  const stateKey = `${alert.server}-${alert.type}`;
-  const now = Date.now();
-  if (previousAlertState[stateKey] && now - previousAlertState[stateKey] < 300000) {
-    return;
-  }
-  previousAlertState[stateKey] = now;
-
+// Fires only on lifecycle transitions (opened/resolved), so no rate
+// limiting is needed anymore
+function sendNativeNotification(alert, event) {
+  const resolved = event === 'resolved';
   notifier.notify({
-    title: `Server Alert: ${alert.severity.toUpperCase()}`,
-    message: alert.message,
-    sound: alert.severity === 'critical' ? 'Basso' : 'Ping',
+    title: resolved
+      ? 'Server Alert Resolved'
+      : `Server Alert: ${alert.severity.toUpperCase()}`,
+    message: resolved ? `Resolved: ${alert.message}` : alert.message,
+    sound: resolved ? 'Ping' : (alert.severity === 'critical' ? 'Basso' : 'Ping'),
     timeout: 10
   });
 }
 
-module.exports = { checkAlerts, sendNativeNotification };
+module.exports = { evaluateBreaches, sendNativeNotification };

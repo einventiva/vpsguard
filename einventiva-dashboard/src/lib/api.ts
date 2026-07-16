@@ -1,4 +1,5 @@
 import type {
+  Alert,
   ServerStatus,
   DockerContainer,
   ScriptResult,
@@ -232,6 +233,18 @@ export const api = {
   // Metric detail (drill-down)
   async getMetricDetail(server: ServerAlias, timestamp: string): Promise<MetricDetailResponse> {
     return fetchApi<MetricDetailResponse>(`/history/${server}/detail?ts=${encodeURIComponent(timestamp)}`)
+  },
+
+  // Alert endpoints
+  async getAlerts(activeOnly = false, limit = 100): Promise<{ alerts: Alert[]; count: number }> {
+    const params = new URLSearchParams()
+    if (activeOnly) params.set('active', '1')
+    params.set('limit', String(limit))
+    return fetchApi<{ alerts: Alert[]; count: number }>(`/alerts?${params}`)
+  },
+
+  async ackAlert(id: number): Promise<Alert> {
+    return fetchApi<Alert>(`/alerts/${id}/ack`, { method: 'POST' })
   },
 
   // Crontab endpoints

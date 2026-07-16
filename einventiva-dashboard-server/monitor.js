@@ -40,6 +40,7 @@ app.use('/api', require('./routes/scripts')(getServers));
 app.use('/api', require('./routes/servers')(getServers, setServers));
 app.use('/api', require('./routes/crontab')(getServers));
 app.use('/api', require('./routes/history')(getServers));
+app.use('/api', require('./routes/alerts')());
 
 // 404 handler
 app.use((req, res) => {
@@ -62,6 +63,8 @@ app.use((req, res) => {
       'GET /api/history/:server': 'Metrics history for a server',
       'GET /api/history/:server/detail?ts=TIMESTAMP': 'Metric detail (drill-down)',
       'GET /api/executions': 'Script execution history',
+      'GET /api/alerts': 'Alert history (active=1 for open alerts only)',
+      'POST /api/alerts/:id/ack': 'Acknowledge an alert',
       'GET /api/crontab/:server': 'List cron jobs',
       'POST /api/crontab/:server': 'Add cron job',
       'PUT /api/crontab/:server/:index': 'Edit cron job',

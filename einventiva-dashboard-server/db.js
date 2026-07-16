@@ -99,6 +99,21 @@ function initDB() {
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      server TEXT NOT NULL,
+      type TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      message TEXT NOT NULL,
+      value REAL,
+      threshold REAL,
+      started_at TEXT NOT NULL,
+      resolved_at TEXT,
+      acknowledged_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_alerts_started ON alerts(started_at);
+    CREATE INDEX IF NOT EXISTS idx_alerts_open ON alerts(server, type) WHERE resolved_at IS NULL;
   `);
 
   // Seed scripts if table is empty
@@ -299,6 +314,56 @@ function getServerCount() {
   return db.prepare('SELECT COUNT(*) as c FROM servers').get().c;
 }
 
+// ─── Alerts ──────────────────────────────────────────────────────────
+function openAlert({ server, type, severity, message, value, threshold }) {
+  const result = db.prepare(
+    'INSERT INTO alerts (server, type, severity, message, value, threshold, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(server, type, severity, message, value ?? null, threshold ?? null, new Date().toISOString());
+  return getAlert(result.lastInsertRowid);
+}
+
+function getAlert(id) {
+  return db.prepare('SELECT * FROM alerts WHERE id = ?').get(id);
+}
+
+function getOpenAlert(server, type) {
+  return db.prepare(
+    'SELECT * FROM alerts WHERE server = ? AND type = ? AND resolved_at IS NULL ORDER BY started_at DESC LIMIT 1'
+  ).get(server, type);
+}
+
+// Track the peak observed value while the alert is open
+function updateAlertPeak(id, value) {
+  if (value == null) return;
+  db.prepare(
+    'UPDATE alerts SET value = ? WHERE id = ? AND (value IS NULL OR value < ?)'
+  ).run(value, id, value);
+}
+
+function resolveAlert(id) {
+  db.prepare('UPDATE alerts SET resolved_at = ? WHERE id = ? AND resolved_at IS NULL')
+    .run(new Date().toISOString(), id);
+  return getAlert(id);
+}
+
+function acknowledgeAlert(id) {
+  db.prepare('UPDATE alerts SET acknowledged_at = ? WHERE id = ? AND acknowledged_at IS NULL')
+    .run(new Date().toISOString(), id);
+  return getAlert(id);
+}
+
+function getAlerts({ activeOnly = false, limit = 100 } = {}) {
+  if (activeOnly) {
+    return db.prepare(
+      'SELECT * FROM alerts WHERE resolved_at IS NULL ORDER BY started_at DESC LIMIT ?'
+    ).all(limit);
+  }
+  // Active first, then most recent resolved
+  return db.prepare(
+    'SELECT * FROM alerts ORDER BY (resolved_at IS NULL) DESC, started_at DESC LIMIT ?'
+  ).all(limit);
+}
+
 // ─── Close ───────────────────────────────────────────────────────────
 function closeDB() {
   if (db) db.close();
@@ -323,6 +388,14 @@ module.exports = {
   // Executions
   logExecution,
   getExecutions,
+  // Alerts
+  openAlert,
+  getAlert,
+  getOpenAlert,
+  updateAlertPeak,
+  resolveAlert,
+  acknowledgeAlert,
+  getAlerts,
   // Servers
   getServers,
   getServer,
