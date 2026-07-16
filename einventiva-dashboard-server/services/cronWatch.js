@@ -96,8 +96,10 @@ function annotateEntries(entries, executions, now = Date.now()) {
 }
 
 async function fetchCronExecutions(alias) {
-  // b64 sidesteps the quoting of nested parentheses in the pattern
-  const script = "grep -hE 'CRON\\[[0-9]+\\]: \\(.*\\) CMD' /var/log/syslog /var/log/syslog.1 2>/dev/null | tail -1000";
+  // b64 sidesteps the quoting of nested parentheses in the pattern.
+  // Oldest file FIRST: grep emits lines in argument order, so tail
+  // keeps the newest — the reverse order silently dropped today's runs.
+  const script = "grep -hE 'CRON\\[[0-9]+\\]: \\(.*\\) CMD' /var/log/syslog.1 /var/log/syslog 2>/dev/null | tail -2000";
   const b64 = Buffer.from(script).toString('base64');
   const raw = await executeSSHCommand(alias, `echo ${b64} | base64 -d | bash`).catch(() => '');
   return parseCronLog(raw);
