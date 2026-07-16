@@ -4,7 +4,7 @@ const { executeSSHCommand } = require('./ssh');
 const { METRICS_COMMAND, parseSystemMetrics, parseCpuPercent } = require('./metrics');
 const { checkAlerts, sendNativeNotification } = require('./alerts');
 const { setCache } = require('./cache');
-const { METRICS_INTERVAL, PRUNE_INTERVAL, PRUNE_KEEP_DAYS } = require('../config');
+const { METRICS_INTERVAL, PRUNE_INTERVAL, PRUNE_STARTUP_DELAY, PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS } = require('../config');
 
 async function fetchAllServerStatus(getServers) {
   const SERVERS = getServers();
@@ -128,10 +128,18 @@ function startMetricsLoop(io, getServers) {
 }
 
 function startPruneLoop() {
-  setInterval(() => {
-    const result = db.pruneOldMetrics(PRUNE_KEEP_DAYS);
-    log('Pruned old metrics', result);
-  }, PRUNE_INTERVAL);
+  const prune = () => {
+    try {
+      const result = db.pruneOldMetrics(PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS);
+      log('Pruned old metrics', result);
+    } catch (e) {
+      log('Prune failed', { error: e.message });
+    }
+  };
+  // Run shortly after startup too — with interval-only scheduling,
+  // frequently-restarted servers never prune
+  setTimeout(prune, PRUNE_STARTUP_DELAY);
+  setInterval(prune, PRUNE_INTERVAL);
 }
 
 module.exports = { fetchAllServerStatus, startMetricsLoop, startPruneLoop };
