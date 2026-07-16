@@ -42,6 +42,7 @@ const TYPE_LABELS: Record<Alert['type'], string> = {
   offline: 'OFFLINE',
   'disk-eta': 'DISK ETA',
   cron: 'CRON',
+  'pg-connections': 'PG CONN',
 }
 
 function AlertRow({ alert, serverName, onAck }: { alert: Alert; serverName: string; onAck: (id: number) => void }) {

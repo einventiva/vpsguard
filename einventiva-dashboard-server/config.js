@@ -36,6 +36,14 @@ const ROLLUP_STARTUP_DELAY = 90 * 1000;
 // Hourly aggregates are tiny (~26k rows/server/year) — keep a year of trends
 const ROLLUP_KEEP_DAYS = parseInt(process.env.ROLLUP_KEEP_DAYS || '365');
 
+// PostgreSQL sampling: one query per container per interval.
+// ~288 samples/day per container; 90 days ≈ 26k container rows.
+const PG_SAMPLE_INTERVAL = parseInt(process.env.PG_SAMPLE_INTERVAL_MIN || '5') * 60 * 1000;
+const PG_SAMPLE_STARTUP_DELAY = 2 * 60 * 1000;
+const PG_KEEP_DAYS = parseInt(process.env.PG_KEEP_DAYS || '90');
+// Alert when connections exceed this fraction of max_connections
+const PG_CONN_ALERT_PCT = parseInt(process.env.PG_CONN_ALERT_PCT || '80');
+
 // Slow checks (hourly): disk-full ETA alert and overdue-cron alert.
 // Delayed past the first rollup so projections have data to work with.
 const SLOW_CHECK_INTERVAL = 60 * 60 * 1000;
@@ -129,6 +137,10 @@ module.exports = {
   SLOW_CHECK_INTERVAL,
   SLOW_CHECK_STARTUP_DELAY,
   DISK_ETA_ALERT_DAYS,
+  PG_SAMPLE_INTERVAL,
+  PG_SAMPLE_STARTUP_DELAY,
+  PG_KEEP_DAYS,
+  PG_CONN_ALERT_PCT,
   parseServersFromEnv,
   loadServersFromDB,
   seedServersFromEnv,
