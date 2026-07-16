@@ -34,6 +34,18 @@ function initDB() {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
+  // Incremental auto_vacuum lets pruning return pages to the OS.
+  // Enabling it on an existing DB requires a one-time full VACUUM.
+  const autoVacuum = db.pragma('auto_vacuum', { simple: true });
+  if (autoVacuum !== 2) {
+    db.pragma('auto_vacuum = INCREMENTAL');
+    console.log('[db] Enabling incremental auto_vacuum — running one-time VACUUM, this may take a while on a large DB...');
+    const before = fs.statSync(DB_PATH).size;
+    db.exec('VACUUM');
+    const after = fs.statSync(DB_PATH).size;
+    console.log(`[db] VACUUM done: ${(before / 1048576).toFixed(0)}MB -> ${(after / 1048576).toFixed(0)}MB`);
+  }
+
   // Create tables
   db.exec(`
     CREATE TABLE IF NOT EXISTS scripts (
@@ -196,10 +208,13 @@ function getMetrics(server, since) {
   ).all(server);
 }
 
-function pruneOldMetrics(keepDays) {
+function pruneOldMetrics(keepDays, detailKeepDays = keepDays) {
   const cutoff = new Date(Date.now() - keepDays * 24 * 60 * 60 * 1000).toISOString();
+  const detailCutoff = new Date(Date.now() - detailKeepDays * 24 * 60 * 60 * 1000).toISOString();
   const metricsResult = db.prepare('DELETE FROM metrics_history WHERE timestamp < ?').run(cutoff);
-  const detailResult = db.prepare('DELETE FROM metrics_detail WHERE timestamp < ?').run(cutoff);
+  const detailResult = db.prepare('DELETE FROM metrics_detail WHERE timestamp < ?').run(detailCutoff);
+  // Return freed pages to the OS (no-op if nothing was deleted)
+  db.pragma('incremental_vacuum');
   return { metricsDeleted: metricsResult.changes, detailsDeleted: detailResult.changes };
 }
 

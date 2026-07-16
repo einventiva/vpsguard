@@ -1,13 +1,16 @@
 import { css } from "uebersicht";
 
 const API_BASE = "http://localhost:3847/api";
-const API_TOKEN = "einventiva-monitor-secret-2024";
+// The API token is read at runtime from ~/.config/vpsguard/token so no
+// secret lives in this file. Create it with:
+//   mkdir -p ~/.config/vpsguard && echo "your-token" > ~/.config/vpsguard/token && chmod 600 ~/.config/vpsguard/token
 
 export const refreshFrequency = 15000;
 
 export const command = `
-  STATUS=$(curl -sf -H "Authorization: Bearer ${API_TOKEN}" "${API_BASE}/status" 2>/dev/null) || STATUS='{}'
-  SERVERS=$(curl -sf -H "Authorization: Bearer ${API_TOKEN}" "${API_BASE}/servers" 2>/dev/null) || SERVERS='{}'
+  TOKEN=$(cat "$HOME/.config/vpsguard/token" 2>/dev/null | tr -d '[:space:]')
+  STATUS=$(curl -sf -H "Authorization: Bearer $TOKEN" "${API_BASE}/status" 2>/dev/null) || STATUS='{}'
+  SERVERS=$(curl -sf -H "Authorization: Bearer $TOKEN" "${API_BASE}/servers" 2>/dev/null) || SERVERS='{}'
   echo "{\\"status\\":$STATUS,\\"servers\\":$SERVERS}"
 `;
 
