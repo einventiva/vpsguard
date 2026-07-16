@@ -1,4 +1,19 @@
-import type { ServerStatus } from '@/types'
+import type { ServerStatus, Thresholds } from '@/types'
+
+// Fallback while /api/thresholds hasn't loaded; the server resolves the
+// real effective values (per-server -> global -> builtin)
+export const DEFAULT_THRESHOLDS: Thresholds = { cpu: 80, memory: 85, disk: 90 }
+
+// Below warnRatio*threshold = green, between = amber, over threshold = red
+const WARN_RATIO = 0.8
+
+export type MetricLevel = 'ok' | 'warning' | 'critical'
+
+export function metricLevel(value: number, threshold: number): MetricLevel {
+  if (value > threshold) return 'critical'
+  if (value > threshold * WARN_RATIO) return 'warning'
+  return 'ok'
+}
 
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -18,9 +33,14 @@ export function formatUptime(seconds: number): string {
   return `${mins}m`
 }
 
-export function getStatusColor(server: ServerStatus | null): string {
+export function getStatusColor(server: ServerStatus | null, thresholds: Thresholds = DEFAULT_THRESHOLDS): string {
   if (!server?.online) return 'bg-red-600'
-  if (server.cpu_percent > 80 || server.memory_percent > 85) return 'bg-red-600'
-  if (server.cpu_percent > 60 || server.memory_percent > 70) return 'bg-amber-500'
+  const levels = [
+    metricLevel(server.cpu_percent, thresholds.cpu),
+    metricLevel(server.memory_percent, thresholds.memory),
+    metricLevel(server.disk_percent, thresholds.disk),
+  ]
+  if (levels.includes('critical')) return 'bg-red-600'
+  if (levels.includes('warning')) return 'bg-amber-500'
   return 'bg-green-500'
 }

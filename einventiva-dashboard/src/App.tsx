@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useServerData } from '@/hooks/useServerData'
 import { useAlerts } from '@/hooks/useAlerts'
+import { useThresholds } from '@/hooks/useThresholds'
 import { Overview } from '@/components/Overview'
 import { DockerPanel } from '@/components/DockerPanel'
 import { ScriptsPanel } from '@/components/ScriptsPanel'
@@ -49,6 +50,7 @@ function App() {
   const [selectedServer, setSelectedServer] = useState<string | null>(null)
   const { data, loading, error, refetch, wsConnected, servers, serverKeys, refetchServers } = useServerData(15000)
   const alertsApi = useAlerts()
+  const thresholdsApi = useThresholds()
 
   const navigateToServerDetail = (key: string) => {
     setSelectedServer(key)
@@ -208,6 +210,7 @@ function App() {
                   error={error}
                   servers={servers}
                   serverKeys={serverKeys}
+                  effectiveThresholds={thresholdsApi.effectiveFor}
                   onServerClick={navigateToServerDetail}
                 />
               </ErrorBoundary>
@@ -222,7 +225,7 @@ function App() {
                 />
               </ErrorBoundary>
             )}
-            {activeTab === 'alerts' && <ErrorBoundary fallbackLabel="Alerts panel failed"><AlertsPanel alertsApi={alertsApi} servers={servers} /></ErrorBoundary>}
+            {activeTab === 'alerts' && <ErrorBoundary fallbackLabel="Alerts panel failed"><AlertsPanel alertsApi={alertsApi} thresholdsApi={thresholdsApi} servers={servers} /></ErrorBoundary>}
             {activeTab === 'docker' && <ErrorBoundary fallbackLabel="Docker panel failed"><DockerPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
             {activeTab === 'postgres' && <ErrorBoundary fallbackLabel="PostgreSQL panel failed"><PostgresPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
             {activeTab === 'scripts' && <ErrorBoundary fallbackLabel="Scripts panel failed"><ScriptsPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}

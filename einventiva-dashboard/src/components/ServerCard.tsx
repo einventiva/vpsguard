@@ -1,17 +1,21 @@
-import type { ServerStatus } from '@/types'
+import type { ServerStatus, Thresholds } from '@/types'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Activity, HardDrive, Zap } from 'lucide-react'
-import { formatUptime, getStatusColor } from '@/lib/formatters'
+import { formatUptime, getStatusColor, metricLevel, DEFAULT_THRESHOLDS } from '@/lib/formatters'
 
 interface ServerCardProps {
   server: ServerStatus
   title: string
+  thresholds?: Thresholds
   onClick?: () => void
 }
 
-export function ServerCard({ server, title, onClick }: ServerCardProps) {
+const LEVEL_HEX = { critical: '#dc2626', warning: '#f59e0b', ok: '#22c55e' } as const
+const LEVEL_BG = { critical: 'bg-red-600', warning: 'bg-amber-500', ok: 'bg-green-500' } as const
+
+export function ServerCard({ server, title, thresholds = DEFAULT_THRESHOLDS, onClick }: ServerCardProps) {
   const cpuRadius = 45
   const cpuCircumference = 2 * Math.PI * cpuRadius
   const cpuOffset = cpuCircumference - (server.cpu_percent / 100) * cpuCircumference
@@ -33,7 +37,7 @@ export function ServerCard({ server, title, onClick }: ServerCardProps) {
         <div className="flex-1">
           <div className="flex items-center gap-3 mb-1">
             <h3 className="text-lg font-semibold text-zinc-50">{title}</h3>
-            <div className={`w-3 h-3 rounded-full ${getStatusColor(server)}`} />
+            <div className={`w-3 h-3 rounded-full ${getStatusColor(server, thresholds)}`} />
           </div>
           <p className="text-sm text-zinc-400 font-mono">{server.hostname}</p>
           <p className="text-xs text-zinc-500 font-mono">{server.ip}</p>
@@ -68,13 +72,7 @@ export function ServerCard({ server, title, onClick }: ServerCardProps) {
               cy="50"
               r={cpuRadius}
               fill="none"
-              stroke={
-                server.cpu_percent > 80
-                  ? '#dc2626'
-                  : server.cpu_percent > 60
-                    ? '#f59e0b'
-                    : '#22c55e'
-              }
+              stroke={LEVEL_HEX[metricLevel(server.cpu_percent, thresholds.cpu)]}
               strokeWidth="6"
               strokeDasharray={cpuCircumference}
               strokeDashoffset={cpuOffset}
@@ -106,13 +104,7 @@ export function ServerCard({ server, title, onClick }: ServerCardProps) {
           </div>
           <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
             <div
-              className={`h-full transition-all duration-500 ${
-                server.memory_percent > 85
-                  ? 'bg-red-600'
-                  : server.memory_percent > 70
-                    ? 'bg-amber-500'
-                    : 'bg-green-500'
-              }`}
+              className={`h-full transition-all duration-500 ${LEVEL_BG[metricLevel(server.memory_percent, thresholds.memory)]}`}
               style={{ width: `${server.memory_percent}%` }}
             />
           </div>
@@ -134,13 +126,7 @@ export function ServerCard({ server, title, onClick }: ServerCardProps) {
           </div>
           <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
             <div
-              className={`h-full transition-all duration-500 ${
-                server.disk_percent > 85
-                  ? 'bg-red-600'
-                  : server.disk_percent > 70
-                    ? 'bg-amber-500'
-                    : 'bg-green-500'
-              }`}
+              className={`h-full transition-all duration-500 ${LEVEL_BG[metricLevel(server.disk_percent, thresholds.disk)]}`}
               style={{ width: `${server.disk_percent}%` }}
             />
           </div>
