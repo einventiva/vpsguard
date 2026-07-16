@@ -255,6 +255,7 @@ function ContainerTable({
             <TableHead className="text-zinc-400 text-right">CPU</TableHead>
             <TableHead className="text-zinc-400 text-right">Memory</TableHead>
             <TableHead className="text-zinc-400 text-right">Disk I/O</TableHead>
+            <TableHead className="text-zinc-400 text-right">Restarts</TableHead>
             <TableHead className="text-zinc-400">Ports</TableHead>
             <TableHead className="text-zinc-400">Uptime</TableHead>
           </TableRow>
@@ -305,6 +306,17 @@ function ContainerTable({
               </TableCell>
               <TableCell className="text-xs text-zinc-500 font-mono text-right">
                 {container.blockIO || '—'}
+              </TableCell>
+              <TableCell className="text-xs font-mono text-right">
+                {container.oomKilled ? (
+                  <span className="text-red-400 font-semibold" title="Killed by the OOM killer — raise its memory limit or fix the leak">
+                    {container.restartCount} OOM
+                  </span>
+                ) : container.restartCount > 0 ? (
+                  <span className="text-amber-400" title="Restart count since creation">{container.restartCount}</span>
+                ) : (
+                  <span className="text-zinc-600">0</span>
+                )}
               </TableCell>
               <TableCell className="text-xs text-zinc-500 font-mono">
                 {container.ports.length > 0

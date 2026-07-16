@@ -1,6 +1,8 @@
 const express = require('express');
 const { log, handleError } = require('../services/logger');
 const { getCrontabEntries, getAllCrontabEntries, writeCrontab } = require('../services/crontab');
+const { fetchCronExecutions, annotateEntries } = require('../services/cronWatch');
+const { getCached, setCache } = require('../services/cache');
 
 function createRouter(getServers) {
   const router = express.Router();
@@ -16,13 +18,27 @@ function createRouter(getServers) {
         return res.status(404).json({ error: `Server '${serverKey}' not found` });
       }
 
-      const { userEntries, systemEntries, all } = await getAllCrontabEntries(serverKey, getServers);
+      // Executions are cached 60s (entries stay live so CRUD reflects
+      // immediately); annotation adds lastRun/overdue per entry
+      const execCacheKey = `cron-exec-${serverKey}`;
+      let executions = getCached(execCacheKey);
+      const [{ userEntries, systemEntries, all }, freshExecutions] = await Promise.all([
+        getAllCrontabEntries(serverKey, getServers),
+        executions ? Promise.resolve(null) : fetchCronExecutions(SERVERS[serverKey].alias),
+      ]);
+      if (!executions) {
+        executions = freshExecutions || [];
+        setCache(execCacheKey, executions, 60000);
+      }
+      const annotated = annotateEntries(all, executions);
+
       res.json({
         server: serverKey,
         name: SERVERS[serverKey].displayName,
         timestamp: new Date().toISOString(),
         count: all.length,
-        entries: all,
+        entries: annotated,
+        executionsSeen: executions.length,
         userCount: userEntries.length,
         systemCount: systemEntries.length,
       });

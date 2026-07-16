@@ -9,7 +9,7 @@ const { log } = require('./services/logger');
 const { handleError } = require('./services/logger');
 const { httpAuth, socketAuth } = require('./middleware/auth');
 const { registerHandlers } = require('./websocket/handlers');
-const { startMetricsLoop, startPruneLoop, startRollupLoop } = require('./services/backgroundJobs');
+const { startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop } = require('./services/backgroundJobs');
 
 // ─── Express + HTTP Server ──────────────────────────────────────────
 const app = express();
@@ -107,6 +107,7 @@ if (dbServers) {
 startMetricsLoop(io, getServers);
 startPruneLoop();
 startRollupLoop();
+startSlowCheckLoop(io, getServers);
 
 server.listen(PORT, () => {
   log(`Server started on http://localhost:${PORT}`);

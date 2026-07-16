@@ -33,11 +33,15 @@ export function useAlerts(): UseAlertsReturn {
 
     const socket = getSharedSocket()
 
+    const DESCRIPTIONS: Partial<Record<Alert['type'], string>> = {
+      offline: 'Server unreachable',
+      'disk-eta': 'Disk projected to fill up',
+      cron: 'Cron jobs overdue',
+    }
+
     const onOpened = (alert: Alert) => {
       setAlerts(prev => [alert, ...prev.filter(a => a.id !== alert.id)])
-      const description = alert.type === 'offline'
-        ? 'Server unreachable'
-        : `${alert.type.toUpperCase()} threshold exceeded`
+      const description = DESCRIPTIONS[alert.type] ?? `${alert.type.toUpperCase()} threshold exceeded`
       if (alert.severity === 'critical') {
         toast.error(alert.message, { description, duration: 10000 })
       } else {
