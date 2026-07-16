@@ -4,11 +4,12 @@ const { executeSSHCommand } = require('./ssh');
 const { METRICS_COMMAND, parseSystemMetrics, parseCpuPercent } = require('./metrics');
 const { sendNativeNotification } = require('./alerts');
 const { createAlertEngine } = require('./alertEngine');
+const { resolveThresholds } = require('./thresholds');
 const { sendWebhook } = require('./notify');
 const { setCache } = require('./cache');
 const {
   METRICS_INTERVAL, PRUNE_INTERVAL, PRUNE_STARTUP_DELAY, PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS,
-  ALERT_THRESHOLDS, ALERT_SAMPLES_TO_OPEN, ALERT_SAMPLES_TO_RESOLVE,
+  ALERT_SAMPLES_TO_OPEN, ALERT_SAMPLES_TO_RESOLVE,
 } = require('../config');
 
 async function fetchAllServerStatus(getServers) {
@@ -59,7 +60,7 @@ async function fetchAllServerStatus(getServers) {
 function startMetricsLoop(io, getServers) {
   const alertEngine = createAlertEngine({
     store: db,
-    thresholds: ALERT_THRESHOLDS,
+    thresholds: resolveThresholds,
     samplesToOpen: ALERT_SAMPLES_TO_OPEN,
     samplesToResolve: ALERT_SAMPLES_TO_RESOLVE,
   });

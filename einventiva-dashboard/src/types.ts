@@ -88,6 +88,26 @@ export interface Alert {
   acknowledged_at: string | null
 }
 
+export interface Thresholds {
+  cpu: number
+  memory: number
+  disk: number
+}
+
+// Override values: null = inherit from the next level up
+export interface ThresholdOverride {
+  cpu: number | null
+  memory: number | null
+  disk: number | null
+}
+
+export interface ThresholdsResponse {
+  builtin: Thresholds
+  global: ThresholdOverride
+  overrides: Record<string, ThresholdOverride>
+  effective: Record<string, Thresholds>
+}
+
 export interface HistoryResponse {
   server: string
   count: number

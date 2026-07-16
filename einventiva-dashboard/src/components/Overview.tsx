@@ -1,8 +1,9 @@
-import type { ServerData, ServerInfo } from '@/types'
+import type { ServerData, ServerInfo, Thresholds } from '@/types'
 import { ServerCard } from './ServerCard'
 import { TrendChart } from './TrendChart'
 import { Card } from '@/components/ui/card'
 import { AlertCircle, AlertTriangle, CheckCircle } from 'lucide-react'
+import { DEFAULT_THRESHOLDS } from '@/lib/formatters'
 
 interface OverviewProps {
   data: ServerData | null
@@ -10,10 +11,12 @@ interface OverviewProps {
   error: string | null
   servers: Record<string, ServerInfo>
   serverKeys: string[]
+  effectiveThresholds?: (serverKey: string) => Thresholds
   onServerClick?: (serverKey: string) => void
 }
 
-export function Overview({ data, loading, error, servers, serverKeys, onServerClick }: OverviewProps) {
+export function Overview({ data, loading, error, servers, serverKeys, effectiveThresholds, onServerClick }: OverviewProps) {
+  const thresholdsFor = effectiveThresholds ?? (() => DEFAULT_THRESHOLDS)
   if (error) {
     return (
       <div className="space-y-4">
@@ -56,7 +59,10 @@ export function Overview({ data, loading, error, servers, serverKeys, onServerCl
 
   const getSystemHealth = () => {
     const anyOffline = entries.some(([, s]) => !s.online)
-    const anyAlerts = entries.some(([, s]) => s.cpu_percent > 80 || s.memory_percent > 85 || s.disk_percent > 90)
+    const anyAlerts = entries.some(([key, s]) => {
+      const t = thresholdsFor(key)
+      return s.cpu_percent > t.cpu || s.memory_percent > t.memory || s.disk_percent > t.disk
+    })
 
     if (anyOffline) {
       return {
@@ -119,6 +125,7 @@ export function Overview({ data, loading, error, servers, serverKeys, onServerCl
             key={key}
             server={status}
             title={servers[key]?.displayName || key}
+            thresholds={thresholdsFor(key)}
             onClick={onServerClick ? () => onServerClick(key) : undefined}
           />
         ))}

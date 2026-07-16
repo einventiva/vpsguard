@@ -136,6 +136,21 @@ describe('alertEngine hysteresis', () => {
     assert.strictEqual(events.resolved.length, 1);
   });
 
+  test('accepts a thresholds function resolved per server', () => {
+    const store = fakeStore();
+    // qa tolerates up to 95% cpu, prod uses the default 80
+    const perServer = (serverKey) =>
+      serverKey === 'qa' ? { ...THRESHOLDS, cpu: 95 } : THRESHOLDS;
+    const engine = createAlertEngine({ store, thresholds: perServer, samplesToOpen: 1, samplesToResolve: 4 });
+
+    const qaEvents = engine.processServerSample('qa', 'QA', sample({ cpu: 90 }));
+    const prodEvents = engine.processServerSample('prod', 'Prod', sample({ cpu: 90 }));
+
+    assert.strictEqual(qaEvents.opened.length, 0);
+    assert.strictEqual(prodEvents.opened.length, 1);
+    assert.strictEqual(prodEvents.opened[0].threshold, 80);
+  });
+
   test('servers and types are tracked independently', () => {
     const store = fakeStore();
     const engine = createAlertEngine({ store, thresholds: THRESHOLDS, samplesToOpen: 2, samplesToResolve: 4 });

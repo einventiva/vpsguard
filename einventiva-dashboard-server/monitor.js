@@ -41,6 +41,7 @@ app.use('/api', require('./routes/servers')(getServers, setServers));
 app.use('/api', require('./routes/crontab')(getServers));
 app.use('/api', require('./routes/history')(getServers));
 app.use('/api', require('./routes/alerts')());
+app.use('/api', require('./routes/thresholds')(getServers));
 
 // 404 handler
 app.use((req, res) => {
@@ -65,6 +66,10 @@ app.use((req, res) => {
       'GET /api/executions': 'Script execution history',
       'GET /api/alerts': 'Alert history (active=1 for open alerts only)',
       'POST /api/alerts/:id/ack': 'Acknowledge an alert',
+      'GET /api/thresholds': 'Alert thresholds (builtin, global, per-server, effective)',
+      'PUT /api/thresholds/global': 'Set global threshold overrides',
+      'PUT /api/thresholds/:server': 'Set per-server threshold overrides',
+      'DELETE /api/thresholds/:server': 'Remove threshold overrides',
       'GET /api/crontab/:server': 'List cron jobs',
       'POST /api/crontab/:server': 'Add cron job',
       'PUT /api/crontab/:server/:index': 'Edit cron job',

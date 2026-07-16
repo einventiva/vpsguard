@@ -1,5 +1,7 @@
 import type {
   Alert,
+  ThresholdOverride,
+  ThresholdsResponse,
   ServerStatus,
   DockerContainer,
   ScriptResult,
@@ -245,6 +247,25 @@ export const api = {
 
   async ackAlert(id: number): Promise<Alert> {
     return fetchApi<Alert>(`/alerts/${id}/ack`, { method: 'POST' })
+  },
+
+  // Threshold endpoints
+  async getThresholds(): Promise<ThresholdsResponse> {
+    return fetchApi<ThresholdsResponse>('/thresholds')
+  },
+
+  async setGlobalThresholds(values: ThresholdOverride): Promise<ThresholdOverride> {
+    return fetchApi<ThresholdOverride>('/thresholds/global', {
+      method: 'PUT',
+      body: JSON.stringify(values),
+    })
+  },
+
+  async setServerThresholds(server: string, values: ThresholdOverride): Promise<ThresholdOverride> {
+    return fetchApi<ThresholdOverride>(`/thresholds/${server}`, {
+      method: 'PUT',
+      body: JSON.stringify(values),
+    })
   },
 
   // Crontab endpoints
