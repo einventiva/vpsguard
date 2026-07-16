@@ -4,8 +4,7 @@ const path = require('path');
 const os = require('os');
 const db = require('../db');
 const { log } = require('../services/logger');
-const { isSSHWarning } = require('../services/ssh');
-const { injectSudoPassword } = require('../services/ssh');
+const { isSSHWarning, injectSudoPassword, getMuxOpts } = require('../services/ssh');
 const { SCRIPT_TIMEOUT } = require('../config');
 
 const logSubscribers = new Map(); // socketId -> { server, container }
@@ -42,7 +41,7 @@ function registerHandlers(io, getServers) {
 
       const serverConfig = SERVERS[serverKey];
       const command = injectSudoPassword(scriptRow.command, password);
-      const sshCommand = `ssh ${serverConfig.alias} "${command.replace(/"/g, '\\"')}"`;
+      const sshCommand = `ssh ${getMuxOpts(serverConfig.alias)} ${serverConfig.alias} "${command.replace(/"/g, '\\"')}"`;
       log('Streaming script execution', { server: serverKey, script });
 
       socket.emit('script:start', { script, server: serverKey });
@@ -90,7 +89,7 @@ function registerHandlers(io, getServers) {
       }
 
       const serverConfig = SERVERS[serverKey];
-      const sshCommand = `ssh ${serverConfig.alias} "${command.replace(/"/g, '\\"')}"`;
+      const sshCommand = `ssh ${getMuxOpts(serverConfig.alias)} ${serverConfig.alias} "${command.replace(/"/g, '\\"')}"`;
       log('Streaming crontab test', { server: serverKey, command: command.substring(0, 100) });
 
       socket.emit('crontab:start', { command, server: serverKey });
