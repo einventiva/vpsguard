@@ -80,7 +80,7 @@ export interface MetricEntry {
 export interface Alert {
   id: number
   server: string
-  type: 'cpu' | 'memory' | 'disk' | 'offline' | 'disk-eta' | 'cron'
+  type: 'cpu' | 'memory' | 'disk' | 'offline' | 'disk-eta' | 'cron' | 'pg-connections'
   severity: 'warning' | 'critical'
   message: string
   value: number | null
@@ -242,6 +242,25 @@ export interface PgReplication {
   write_lsn: string
   replay_lsn: string
   sync_state: string
+}
+
+export type PgHistoryRange = '24h' | '7d' | '30d'
+
+export interface PgHistoryEntry {
+  timestamp: string
+  connections: number | null
+  max_connections: number | null
+  size_bytes: number | null
+  cache_hit_ratio: number | null
+  replication_lag_bytes: number | null
+}
+
+export interface PgHistoryResponse {
+  server: string
+  container: string
+  range: PgHistoryRange
+  count: number
+  entries: PgHistoryEntry[]
 }
 
 export interface PgDetailedResponse {

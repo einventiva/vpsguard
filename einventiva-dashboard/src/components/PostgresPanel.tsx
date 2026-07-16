@@ -19,7 +19,8 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { RefreshCw, X, ChevronDown, ChevronRight } from 'lucide-react'
+import { RefreshCw, X, ChevronDown, ChevronRight, TrendingUp } from 'lucide-react'
+import { PgTrends } from './PgTrends'
 
 interface PostgresPanelProps {
   servers: Record<string, ServerInfo>
@@ -114,6 +115,7 @@ interface PgContainerCardProps {
 }
 
 function PgContainerCard({ container, server }: PgContainerCardProps) {
+  const [showTrends, setShowTrends] = useState(false)
   const [selectedDb, setSelectedDb] = useState<string | null>(null)
   const [detailed, setDetailed] = useState<PgDetailedResponse | null>(null)
   const [detailedLoading, setDetailedLoading] = useState(false)
@@ -159,7 +161,17 @@ function PgContainerCard({ container, server }: PgContainerCardProps) {
             Error
           </Badge>
         )}
+        <button
+          onClick={() => setShowTrends(v => !v)}
+          className={`ml-auto flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+            showTrends ? 'bg-zinc-700 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800'
+          }`}
+        >
+          <TrendingUp className="w-3.5 h-3.5" /> Trends
+        </button>
       </div>
+
+      {showTrends && <PgTrends server={server} container={container.name} />}
 
       {/* Basic: Databases table */}
       {container.error ? (

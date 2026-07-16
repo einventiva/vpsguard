@@ -37,6 +37,7 @@ export function useAlerts(): UseAlertsReturn {
       offline: 'Server unreachable',
       'disk-eta': 'Disk projected to fill up',
       cron: 'Cron jobs overdue',
+      'pg-connections': 'PostgreSQL connections near limit',
     }
 
     const onOpened = (alert: Alert) => {

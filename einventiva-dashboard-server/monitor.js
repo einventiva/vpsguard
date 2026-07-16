@@ -9,7 +9,7 @@ const { log } = require('./services/logger');
 const { handleError } = require('./services/logger');
 const { httpAuth, socketAuth } = require('./middleware/auth');
 const { registerHandlers } = require('./websocket/handlers');
-const { startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop } = require('./services/backgroundJobs');
+const { startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop } = require('./services/backgroundJobs');
 
 // ─── Express + HTTP Server ──────────────────────────────────────────
 const app = express();
@@ -57,6 +57,7 @@ app.use((req, res) => {
       'GET /api/docker/:server/:container/logs': 'Logs for a container',
       'GET /api/postgres/:server': 'PostgreSQL containers and basic stats',
       'GET /api/postgres/:server/detailed?container=NAME': 'Detailed PostgreSQL stats',
+      'GET /api/postgres/:server/history?container=NAME': 'PostgreSQL time series (range=24h|7d|30d)',
       'POST /api/execute/:server': 'Execute a predefined script',
       'GET /api/scripts': 'List scripts',
       'POST /api/scripts': 'Create script',
@@ -108,6 +109,7 @@ startMetricsLoop(io, getServers);
 startPruneLoop();
 startRollupLoop();
 startSlowCheckLoop(io, getServers);
+startPgSampleLoop(io, getServers);
 
 server.listen(PORT, () => {
   log(`Server started on http://localhost:${PORT}`);
