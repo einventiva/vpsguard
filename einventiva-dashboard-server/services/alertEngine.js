@@ -6,6 +6,10 @@ const ALERT_TYPES = ['offline', 'cpu', 'memory', 'disk'];
 // (db.js in production, a fake in tests) providing: getOpenAlert,
 // openAlert, updateAlertPeak, resolveAlert.
 //
+// `thresholds` is either a static { cpu, memory, disk } object or a
+// function (serverKey) => thresholds, resolved on every sample so
+// per-server overrides apply without restarting.
+//
 // - An alert opens after `samplesToOpen` consecutive breaching samples,
 //   so a single 15s spike doesn't fire.
 // - It resolves after `samplesToResolve` consecutive clean samples,
@@ -16,8 +20,9 @@ function createAlertEngine({ store, thresholds, samplesToOpen = 2, samplesToReso
   const counters = new Map(); // `${server}:${type}` -> { breach, ok }
 
   function processServerSample(serverKey, displayName, data) {
+    const resolvedThresholds = typeof thresholds === 'function' ? thresholds(serverKey) : thresholds;
     const breaches = new Map(
-      evaluateBreaches(displayName, data, thresholds).map(b => [b.type, b])
+      evaluateBreaches(displayName, data, resolvedThresholds).map(b => [b.type, b])
     );
     const events = { opened: [], resolved: [] };
 

@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { Alert, ServerInfo } from '@/types'
 import type { UseAlertsReturn } from '@/hooks/useAlerts'
+import type { UseThresholdsReturn } from '@/hooks/useThresholds'
+import { ThresholdsEditor } from './ThresholdsEditor'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -8,6 +10,7 @@ import { AlertCircle, AlertTriangle, CheckCircle, Check, Loader, BellOff } from 
 
 interface AlertsPanelProps {
   alertsApi: UseAlertsReturn
+  thresholdsApi: UseThresholdsReturn
   servers: Record<string, ServerInfo>
 }
 
@@ -86,7 +89,7 @@ function AlertRow({ alert, serverName, onAck }: { alert: Alert; serverName: stri
   )
 }
 
-export function AlertsPanel({ alertsApi, servers }: AlertsPanelProps) {
+export function AlertsPanel({ alertsApi, thresholdsApi, servers }: AlertsPanelProps) {
   const { alerts, loading, activeCount, acknowledge } = alertsApi
   const [filter, setFilter] = useState<FilterType>('all')
 
@@ -144,6 +147,8 @@ export function AlertsPanel({ alertsApi, servers }: AlertsPanelProps) {
       <p className="text-xs text-zinc-600">
         Alerts open after 2 consecutive samples over threshold (~30s) and resolve after 4 clean samples (~1min). Offline alerts resolve on the first successful connection.
       </p>
+
+      <ThresholdsEditor thresholdsApi={thresholdsApi} servers={servers} />
     </div>
   )
 }

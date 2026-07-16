@@ -114,6 +114,14 @@ function initDB() {
     );
     CREATE INDEX IF NOT EXISTS idx_alerts_started ON alerts(started_at);
     CREATE INDEX IF NOT EXISTS idx_alerts_open ON alerts(server, type) WHERE resolved_at IS NULL;
+
+    CREATE TABLE IF NOT EXISTS thresholds (
+      server TEXT PRIMARY KEY,
+      cpu REAL,
+      memory REAL,
+      disk REAL,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   // Seed scripts if table is empty
@@ -364,6 +372,31 @@ function getAlerts({ activeOnly = false, limit = 100 } = {}) {
   ).all(limit);
 }
 
+// ─── Thresholds ──────────────────────────────────────────────────────
+// Rows keyed by server key; the row 'default' is the global override.
+// NULL columns mean "inherit from the next level up".
+function getThreshold(server) {
+  return db.prepare('SELECT server, cpu, memory, disk FROM thresholds WHERE server = ?').get(server);
+}
+
+function getAllThresholds() {
+  return db.prepare('SELECT server, cpu, memory, disk FROM thresholds').all();
+}
+
+function setThreshold(server, { cpu, memory, disk }) {
+  db.prepare(`
+    INSERT INTO thresholds (server, cpu, memory, disk, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(server) DO UPDATE SET cpu = excluded.cpu, memory = excluded.memory,
+      disk = excluded.disk, updated_at = datetime('now')
+  `).run(server, cpu ?? null, memory ?? null, disk ?? null);
+  return getThreshold(server);
+}
+
+function deleteThreshold(server) {
+  return db.prepare('DELETE FROM thresholds WHERE server = ?').run(server);
+}
+
 // ─── Close ───────────────────────────────────────────────────────────
 function closeDB() {
   if (db) db.close();
@@ -396,6 +429,11 @@ module.exports = {
   resolveAlert,
   acknowledgeAlert,
   getAlerts,
+  // Thresholds
+  getThreshold,
+  getAllThresholds,
+  setThreshold,
+  deleteThreshold,
   // Servers
   getServers,
   getServer,

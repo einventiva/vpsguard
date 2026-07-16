@@ -71,13 +71,14 @@ describe('getStatusColor', () => {
     expect(getStatusColor(makeServer({ memory_percent: 90 }))).toBe('bg-red-600')
   })
 
-  // Boundary tests — thresholds use > not >=
-  it('returns green at exactly cpu=60 (boundary)', () => {
-    expect(getStatusColor(makeServer({ cpu_percent: 60 }))).toBe('bg-green-500')
+  // Boundary tests — warning starts above 80% of the threshold (cpu: 64),
+  // critical above the threshold itself; both use > not >=
+  it('returns green at exactly cpu=64 (warning boundary)', () => {
+    expect(getStatusColor(makeServer({ cpu_percent: 64 }))).toBe('bg-green-500')
   })
 
-  it('returns amber at cpu=61 (just above boundary)', () => {
-    expect(getStatusColor(makeServer({ cpu_percent: 61 }))).toBe('bg-amber-500')
+  it('returns amber at cpu=65 (just above warning boundary)', () => {
+    expect(getStatusColor(makeServer({ cpu_percent: 65 }))).toBe('bg-amber-500')
   })
 
   it('returns amber at exactly cpu=80 (boundary)', () => {
@@ -88,12 +89,19 @@ describe('getStatusColor', () => {
     expect(getStatusColor(makeServer({ cpu_percent: 81 }))).toBe('bg-red-600')
   })
 
-  it('returns green at exactly memory=70 (boundary)', () => {
-    expect(getStatusColor(makeServer({ memory_percent: 70 }))).toBe('bg-green-500')
+  it('returns green at exactly memory=68 (warning boundary, 80% of 85)', () => {
+    expect(getStatusColor(makeServer({ memory_percent: 68 }))).toBe('bg-green-500')
   })
 
-  it('returns amber at memory=71 (just above boundary)', () => {
-    expect(getStatusColor(makeServer({ memory_percent: 71 }))).toBe('bg-amber-500')
+  it('returns amber at memory=69 (just above warning boundary)', () => {
+    expect(getStatusColor(makeServer({ memory_percent: 69 }))).toBe('bg-amber-500')
+  })
+
+  it('uses custom thresholds when provided', () => {
+    const custom = { cpu: 50, memory: 85, disk: 90 }
+    expect(getStatusColor(makeServer({ cpu_percent: 55 }), custom)).toBe('bg-red-600')
+    expect(getStatusColor(makeServer({ cpu_percent: 45 }), custom)).toBe('bg-amber-500')
+    expect(getStatusColor(makeServer({ cpu_percent: 30 }), custom)).toBe('bg-green-500')
   })
 
   it('returns amber at exactly memory=85 (boundary)', () => {
