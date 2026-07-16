@@ -12,7 +12,7 @@ if (!API_TOKEN) {
 const COMMAND_TIMEOUT = 30000;
 const SCRIPT_TIMEOUT = 60000;
 
-const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:4173').split(',').map(s => s.trim());
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:5174,http://localhost:4173').split(',').map(s => s.trim());
 
 const ALERT_THRESHOLDS = {
   cpu: 80,
@@ -22,7 +22,11 @@ const ALERT_THRESHOLDS = {
 
 const METRICS_INTERVAL = 15000;
 const PRUNE_INTERVAL = 24 * 60 * 60 * 1000;
-const PRUNE_KEEP_DAYS = 30;
+const PRUNE_STARTUP_DELAY = 60 * 1000;
+const PRUNE_KEEP_DAYS = parseInt(process.env.PRUNE_KEEP_DAYS || '30');
+// Per-process/container detail is only useful for recent diagnosis and
+// grows ~35x faster than metrics_history — keep it short
+const DETAIL_KEEP_DAYS = parseInt(process.env.DETAIL_KEEP_DAYS || '3');
 
 // ─── Server parsing ─────────────────────────────────────────────────
 
@@ -95,7 +99,9 @@ module.exports = {
   ALERT_THRESHOLDS,
   METRICS_INTERVAL,
   PRUNE_INTERVAL,
+  PRUNE_STARTUP_DELAY,
   PRUNE_KEEP_DAYS,
+  DETAIL_KEEP_DAYS,
   parseServersFromEnv,
   loadServersFromDB,
   seedServersFromEnv,
