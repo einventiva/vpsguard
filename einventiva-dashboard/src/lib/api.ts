@@ -4,6 +4,8 @@ import type {
   ThresholdsResponse,
   HistoryRange,
   ProjectionsResponse,
+  PgHistoryRange,
+  PgHistoryResponse,
   ServerStatus,
   DockerContainer,
   ScriptResult,
@@ -245,6 +247,12 @@ export const api = {
     const params = new URLSearchParams({ ts: timestamp })
     if (windowSeconds) params.set('window', String(windowSeconds))
     return fetchApi<MetricDetailResponse>(`/history/${server}/detail?${params}`)
+  },
+
+  // PostgreSQL time series (5-min sampler)
+  async getPgHistory(server: ServerAlias, container: string, range: PgHistoryRange = '24h'): Promise<PgHistoryResponse> {
+    const params = new URLSearchParams({ container, range })
+    return fetchApi<PgHistoryResponse>(`/postgres/${server}/history?${params}`)
   },
 
   // Projections (disk-full ETA, memory slope)

@@ -123,6 +123,20 @@ function initDB() {
       updated_at TEXT DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS pg_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      server TEXT NOT NULL,
+      container TEXT NOT NULL,
+      datname TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      size_bytes INTEGER,
+      connections INTEGER,
+      max_connections INTEGER,
+      cache_hit_ratio REAL,
+      replication_lag_bytes INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_pg_history ON pg_history(server, container, datname, timestamp);
+
     CREATE TABLE IF NOT EXISTS metrics_rollup (
       server TEXT NOT NULL,
       bucket_start TEXT NOT NULL,
@@ -260,6 +274,55 @@ function getMetricsBucketed(server, since, bucketSeconds) {
     GROUP BY 1
     ORDER BY 1
   `).all(bucketSeconds, bucketSeconds, server, since);
+}
+
+// ─── PostgreSQL history ──────────────────────────────────────────────
+// Rows with datname='' are container-level aggregates (total
+// connections, max_connections, replication lag); per-db rows carry
+// size and connections for that database.
+function appendPgMetrics(rows) {
+  const insert = db.prepare(`
+    INSERT INTO pg_history (server, container, datname, timestamp, size_bytes, connections, max_connections, cache_hit_ratio, replication_lag_bytes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const insertMany = db.transaction((items) => {
+    for (const r of items) {
+      insert.run(r.server, r.container, r.datname ?? '', r.timestamp,
+        r.sizeBytes ?? null, r.connections ?? null, r.maxConnections ?? null,
+        r.cacheHitRatio ?? null, r.replicationLagBytes ?? null);
+    }
+  });
+  insertMany(rows);
+}
+
+// Container-level series; bucketSeconds averages samples for long ranges
+function getPgHistory(server, container, since, bucketSeconds = null) {
+  if (bucketSeconds) {
+    return db.prepare(`
+      SELECT
+        strftime('%Y-%m-%dT%H:%M:%SZ', (CAST(strftime('%s', timestamp) AS INTEGER) / CAST(? AS INTEGER)) * CAST(? AS INTEGER), 'unixepoch') AS timestamp,
+        CAST(round(avg(connections)) AS INTEGER) AS connections,
+        max(max_connections) AS max_connections,
+        CAST(round(avg(size_bytes)) AS INTEGER) AS size_bytes,
+        round(avg(cache_hit_ratio), 2) AS cache_hit_ratio,
+        CAST(round(avg(replication_lag_bytes)) AS INTEGER) AS replication_lag_bytes
+      FROM pg_history
+      WHERE server = ? AND container = ? AND datname = '' AND timestamp >= ?
+      GROUP BY 1
+      ORDER BY 1
+    `).all(bucketSeconds, bucketSeconds, server, container, since);
+  }
+  return db.prepare(`
+    SELECT timestamp, connections, max_connections, size_bytes, cache_hit_ratio, replication_lag_bytes
+    FROM pg_history
+    WHERE server = ? AND container = ? AND datname = '' AND timestamp >= ?
+    ORDER BY timestamp
+  `).all(server, container, since);
+}
+
+function prunePgHistory(keepDays) {
+  const cutoff = new Date(Date.now() - keepDays * 24 * 60 * 60 * 1000).toISOString();
+  return db.prepare('DELETE FROM pg_history WHERE timestamp < ?').run(cutoff);
 }
 
 // ─── Hourly rollups ─────────────────────────────────────────────────
@@ -505,6 +568,10 @@ module.exports = {
   rollupHourly,
   getRollup,
   pruneRollup,
+  // PostgreSQL history
+  appendPgMetrics,
+  getPgHistory,
+  prunePgHistory,
   // Detail
   appendMetricDetails,
   getMetricDetails,
