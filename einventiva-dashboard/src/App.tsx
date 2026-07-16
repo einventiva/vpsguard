@@ -8,6 +8,7 @@ import { LogViewer } from '@/components/LogViewer'
 import { CrontabPanel } from '@/components/CrontabPanel'
 import { ServersPanel } from '@/components/ServersPanel'
 import { PostgresPanel } from '@/components/PostgresPanel'
+import { AlertsPanel } from '@/components/AlertsPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { Toaster } from '@/components/ui/sonner'
 import { Button } from '@/components/ui/button'
@@ -26,12 +27,14 @@ import {
   Wifi,
   WifiOff,
   ArrowLeft,
+  Bell,
 } from 'lucide-react'
 
-type TabType = 'overview' | 'docker' | 'postgres' | 'scripts' | 'crontab' | 'logs' | 'servers' | 'serverDetail'
+type TabType = 'overview' | 'alerts' | 'docker' | 'postgres' | 'scripts' | 'crontab' | 'logs' | 'servers' | 'serverDetail'
 
 const navItems: Array<{ id: TabType; label: string; icon: React.ReactNode }> = [
   { id: 'overview', label: 'Overview', icon: <Activity className="w-4 h-4" /> },
+  { id: 'alerts', label: 'Alerts', icon: <Bell className="w-4 h-4" /> },
   { id: 'docker', label: 'Docker', icon: <Container className="w-4 h-4" /> },
   { id: 'postgres', label: 'PostgreSQL', icon: <Database className="w-4 h-4" /> },
   { id: 'scripts', label: 'Scripts', icon: <Terminal className="w-4 h-4" /> },
@@ -45,7 +48,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [selectedServer, setSelectedServer] = useState<string | null>(null)
   const { data, loading, error, refetch, wsConnected, servers, serverKeys, refetchServers } = useServerData(15000)
-  useAlerts()
+  const alertsApi = useAlerts()
 
   const navigateToServerDetail = (key: string) => {
     setSelectedServer(key)
@@ -106,6 +109,11 @@ function App() {
               >
                 {item.icon}
                 <span className="text-xs font-medium">{item.label}</span>
+                {item.id === 'alerts' && alertsApi.unackedCount > 0 && (
+                  <span className="ml-auto min-w-[18px] h-[18px] px-1 rounded-full bg-red-600 text-white text-[10px] font-bold flex items-center justify-center">
+                    {alertsApi.unackedCount}
+                  </span>
+                )}
               </Button>
             )
           })}
@@ -214,6 +222,7 @@ function App() {
                 />
               </ErrorBoundary>
             )}
+            {activeTab === 'alerts' && <ErrorBoundary fallbackLabel="Alerts panel failed"><AlertsPanel alertsApi={alertsApi} servers={servers} /></ErrorBoundary>}
             {activeTab === 'docker' && <ErrorBoundary fallbackLabel="Docker panel failed"><DockerPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
             {activeTab === 'postgres' && <ErrorBoundary fallbackLabel="PostgreSQL panel failed"><PostgresPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
             {activeTab === 'scripts' && <ErrorBoundary fallbackLabel="Scripts panel failed"><ScriptsPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
