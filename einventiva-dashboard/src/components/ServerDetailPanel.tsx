@@ -13,7 +13,9 @@ import {
 import { Card } from '@/components/ui/card'
 import { api } from '@/lib/api'
 import { formatUptime, getStatusColor } from '@/lib/formatters'
-import type { ServerInfo, ServerStatus, MetricEntry, MetricDetailEntry } from '@/types'
+import type { ServerInfo, ServerStatus, MetricEntry, MetricDetailEntry, HistoryRange } from '@/types'
+
+const RANGE_OPTIONS: HistoryRange[] = ['1h', '6h', '24h', '7d', '30d', '90d']
 import { Cpu, Container, Loader, ArrowUpDown, ArrowUp, ArrowDown, TrendingUp, X, FileText, RefreshCw } from 'lucide-react'
 
 type SortField = 'name' | 'cpu' | 'memory'
@@ -53,6 +55,8 @@ export function ServerDetailPanel({ serverKey, serverInfo, serverStatus }: Serve
   const [data, setData] = useState<MetricEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [historyError, setHistoryError] = useState<string | null>(null)
+  const [range, setRange] = useState<HistoryRange>('24h')
+  const [bucketSeconds, setBucketSeconds] = useState(15)
 
   // Selection state (click-drag on chart) — stores idx values
   const [dragStart, setDragStart] = useState<number | null>(null)
@@ -78,10 +82,12 @@ export function ServerDetailPanel({ serverKey, serverInfo, serverStatus }: Serve
 
   // Fetch history
   useEffect(() => {
+    setSelection(null) // indices refer to the previous dataset
     const fetchHistory = async () => {
       try {
-        const response = await api.getHistory(serverKey)
+        const response = await api.getHistory(serverKey, { range })
         setData(response.entries || [])
+        setBucketSeconds(response.bucketSeconds ?? 15)
         setHistoryError(null)
       } catch (err) {
         setHistoryError(err instanceof Error ? err.message : 'Failed to load history')
@@ -91,7 +97,7 @@ export function ServerDetailPanel({ serverKey, serverInfo, serverStatus }: Serve
     fetchHistory()
     const interval = setInterval(fetchHistory, 60000)
     return () => clearInterval(interval)
-  }, [serverKey])
+  }, [serverKey, range])
 
   // Chart data — all entries with numeric idx
   const chartData: ChartPoint[] = useMemo(() =>
@@ -206,17 +212,18 @@ export function ServerDetailPanel({ serverKey, serverInfo, serverStatus }: Serve
     const fetchBreakdown = async () => {
       setBreakdownLoading(true)
       try {
-        const detail = await api.getMetricDetail(serverKey, peakTimestamp)
+        // Bucketed points are averages: find the nearest real sample
+        const detail = await api.getMetricDetail(serverKey, peakTimestamp, bucketSeconds > 15 ? bucketSeconds : undefined)
         setProcesses(detail.processes || [])
         setContainers(detail.containers || [])
-        setBreakdownTime(peakTimestamp)
+        setBreakdownTime(detail.timestamp || peakTimestamp)
       } catch (err) {
         console.error(`Failed to load breakdown for ${serverKey}:`, err)
       }
       finally { setBreakdownLoading(false) }
     }
     fetchBreakdown()
-  }, [serverKey, peakTimestamp])
+  }, [serverKey, peakTimestamp, bucketSeconds])
 
   // Sort helpers
   const sortItems = useCallback((items: MetricDetailEntry[], sort: SortState) => {
@@ -306,8 +313,25 @@ export function ServerDetailPanel({ serverKey, serverInfo, serverStatus }: Serve
 
       {/* Chart Card */}
       <Card className="border-zinc-700 bg-zinc-900/50 p-4">
-        <div className="flex items-center justify-between mb-3">
-          <h4 className="text-sm font-semibold text-zinc-300">Resource Trends</h4>
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="flex items-center gap-3">
+            <h4 className="text-sm font-semibold text-zinc-300">Resource Trends</h4>
+            <div className="flex items-center gap-1">
+              {RANGE_OPTIONS.map(r => (
+                <button
+                  key={r}
+                  onClick={() => setRange(r)}
+                  className={`px-2 py-0.5 rounded text-xs font-mono transition-colors ${
+                    range === r
+                      ? 'bg-zinc-700 text-zinc-100'
+                      : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             {selection && rangeAnalysis ? (
               <>
@@ -333,7 +357,10 @@ export function ServerDetailPanel({ serverKey, serverInfo, serverStatus }: Serve
             {/* Main chart — click-drag to select analysis range */}
             <div className="select-none">
               <ResponsiveContainer width="100%" height={320}>
+                {/* key remounts the chart on range change — the Brush keeps
+                    stale start/end indices from the previous dataset otherwise */}
                 <AreaChart
+                  key={range}
                   data={chartData}
                   onMouseDown={handleMouseDown}
                   onMouseMove={handleMouseMove}

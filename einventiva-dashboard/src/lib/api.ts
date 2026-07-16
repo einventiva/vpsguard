@@ -2,6 +2,8 @@ import type {
   Alert,
   ThresholdOverride,
   ThresholdsResponse,
+  HistoryRange,
+  ProjectionsResponse,
   ServerStatus,
   DockerContainer,
   ScriptResult,
@@ -227,14 +229,25 @@ export const api = {
   },
 
   // History endpoints
-  async getHistory(server: ServerAlias, since?: string): Promise<HistoryResponse> {
-    const params = since ? `?since=${encodeURIComponent(since)}` : ''
-    return fetchApi<HistoryResponse>(`/history/${server}${params}`)
+  async getHistory(server: ServerAlias, opts?: { since?: string; range?: HistoryRange }): Promise<HistoryResponse> {
+    const params = new URLSearchParams()
+    if (opts?.range) params.set('range', opts.range)
+    else if (opts?.since) params.set('since', opts.since)
+    const qs = params.toString()
+    return fetchApi<HistoryResponse>(`/history/${server}${qs ? `?${qs}` : ''}`)
   },
 
-  // Metric detail (drill-down)
-  async getMetricDetail(server: ServerAlias, timestamp: string): Promise<MetricDetailResponse> {
-    return fetchApi<MetricDetailResponse>(`/history/${server}/detail?ts=${encodeURIComponent(timestamp)}`)
+  // Metric detail (drill-down). `windowSeconds` finds the nearest
+  // detail when the chart point is a bucketed/rolled-up average.
+  async getMetricDetail(server: ServerAlias, timestamp: string, windowSeconds?: number): Promise<MetricDetailResponse> {
+    const params = new URLSearchParams({ ts: timestamp })
+    if (windowSeconds) params.set('window', String(windowSeconds))
+    return fetchApi<MetricDetailResponse>(`/history/${server}/detail?${params}`)
+  },
+
+  // Projections (disk-full ETA, memory slope)
+  async getProjections(): Promise<ProjectionsResponse> {
+    return fetchApi<ProjectionsResponse>('/projections')
   },
 
   // Alert endpoints

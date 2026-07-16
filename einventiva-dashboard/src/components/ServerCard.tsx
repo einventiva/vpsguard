@@ -1,21 +1,30 @@
-import type { ServerStatus, Thresholds } from '@/types'
+import type { ServerStatus, Thresholds, ServerProjection } from '@/types'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Activity, HardDrive, Zap } from 'lucide-react'
+import { Activity, HardDrive, Zap, TrendingUp } from 'lucide-react'
 import { formatUptime, getStatusColor, metricLevel, DEFAULT_THRESHOLDS } from '@/lib/formatters'
 
 interface ServerCardProps {
   server: ServerStatus
   title: string
   thresholds?: Thresholds
+  projection?: ServerProjection
   onClick?: () => void
 }
 
 const LEVEL_HEX = { critical: '#dc2626', warning: '#f59e0b', ok: '#22c55e' } as const
 const LEVEL_BG = { critical: 'bg-red-600', warning: 'bg-amber-500', ok: 'bg-green-500' } as const
 
-export function ServerCard({ server, title, thresholds = DEFAULT_THRESHOLDS, onClick }: ServerCardProps) {
+function diskEtaColor(etaDays: number): string {
+  if (etaDays < 14) return 'text-red-400'
+  if (etaDays < 30) return 'text-amber-400'
+  return 'text-zinc-500'
+}
+
+export function ServerCard({ server, title, thresholds = DEFAULT_THRESHOLDS, projection, onClick }: ServerCardProps) {
+  const diskEta = projection?.disk.etaDays ?? null
+  const memTrend = projection?.memory.trendingUp ? projection.memory.slopePerHour : null
   const cpuRadius = 45
   const cpuCircumference = 2 * Math.PI * cpuRadius
   const cpuOffset = cpuCircumference - (server.cpu_percent / 100) * cpuCircumference
@@ -108,9 +117,16 @@ export function ServerCard({ server, title, thresholds = DEFAULT_THRESHOLDS, onC
               style={{ width: `${server.memory_percent}%` }}
             />
           </div>
-          <p className="text-xs text-zinc-500 mt-1 font-mono">
-            {(server.memory_used / 1024).toFixed(1)}GB / {(server.memory_total / 1024).toFixed(1)}GB
-          </p>
+          <div className="flex items-center justify-between mt-1">
+            <p className="text-xs text-zinc-500 font-mono">
+              {(server.memory_used / 1024).toFixed(1)}GB / {(server.memory_total / 1024).toFixed(1)}GB
+            </p>
+            {memTrend != null && (
+              <p className="text-xs font-mono text-amber-400 flex items-center gap-1" title="Sustained memory climb — possible leak">
+                <TrendingUp className="w-3 h-3" /> +{memTrend.toFixed(1)}%/h
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Disk */}
@@ -130,9 +146,16 @@ export function ServerCard({ server, title, thresholds = DEFAULT_THRESHOLDS, onC
               style={{ width: `${server.disk_percent}%` }}
             />
           </div>
-          <p className="text-xs text-zinc-500 mt-1 font-mono">
-            {(server.disk_used / 1024 / 1024 / 1024).toFixed(1)}GB / {(server.disk_total / 1024 / 1024 / 1024).toFixed(1)}GB
-          </p>
+          <div className="flex items-center justify-between mt-1">
+            <p className="text-xs text-zinc-500 font-mono">
+              {(server.disk_used / 1024 / 1024 / 1024).toFixed(1)}GB / {(server.disk_total / 1024 / 1024 / 1024).toFixed(1)}GB
+            </p>
+            {diskEta != null && diskEta < 90 && (
+              <p className={`text-xs font-mono ${diskEtaColor(diskEta)}`} title={`Filling ~${projection?.disk.slopePerDay?.toFixed(2)}%/day`}>
+                ≈ {Math.round(diskEta)}d until full
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Load Average */}
