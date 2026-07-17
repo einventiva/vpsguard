@@ -10,6 +10,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.2.1] — 2026-07-16
+
+#### Fixed
+- **PostgreSQL replicas without `POSTGRES_USER`** failed with `FATAL: role "postgres" does not exist`: containers created from basebackups keep the primary's superuser (e.g. `hashtask_admin`), so the role is now resolved by probing candidates in a single SSH call — `PG_USER_OVERRIDES` mapping → `POSTGRES_USER` → `postgres` → container-name-derived bases with `_admin`/`_user` suffix variants — and cached per container for 1 hour
+- PostgreSQL panel errors now show only the meaningful `psql:`/`FATAL` line instead of the full SSH command dump
+- The PostgreSQL sampler guards `pg_current_wal_lsn()` with `pg_is_in_recovery()`, so a streaming standby can no longer break the whole sample
+
+#### Added
+- `PG_USER_OVERRIDES` env var (JSON container → role) for roles auto-detection can't guess
+
 ### [1.2.0] — 2026-07-16
 
 #### Added
@@ -62,6 +72,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.2.1] — 2026-07-16
+
+#### Corregido
+- **Réplicas de PostgreSQL sin `POSTGRES_USER`** fallaban con `FATAL: role "postgres" does not exist`: los contenedores creados desde basebackups conservan el superusuario del primario (p.ej. `hashtask_admin`), así que el rol ahora se resuelve probando candidatos en una sola llamada SSH — mapeo `PG_USER_OVERRIDES` → `POSTGRES_USER` → `postgres` → derivados del nombre del contenedor con variantes `_admin`/`_user` — y se cachea por contenedor durante 1 hora
+- Los errores del panel PostgreSQL ahora muestran solo la línea relevante `psql:`/`FATAL` en vez del volcado completo del comando SSH
+- El muestreador de PostgreSQL protege `pg_current_wal_lsn()` con `pg_is_in_recovery()`, de modo que un standby en streaming ya no rompe la muestra completa
+
+#### Agregado
+- Variable `PG_USER_OVERRIDES` (JSON contenedor → rol) para roles que la autodetección no puede adivinar
 
 ### [1.2.0] — 2026-07-16
 
