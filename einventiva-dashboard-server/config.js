@@ -44,6 +44,16 @@ const PG_KEEP_DAYS = parseInt(process.env.PG_KEEP_DAYS || '90');
 // Alert when connections exceed this fraction of max_connections
 const PG_CONN_ALERT_PCT = parseInt(process.env.PG_CONN_ALERT_PCT || '80');
 
+// Explicit container -> role mapping for cases auto-detection can't
+// guess (e.g. a role name that doesn't match the container name).
+// JSON: {"pg-replica-foo": "foo_legacy_user"}
+let PG_USER_OVERRIDES = {};
+try {
+  PG_USER_OVERRIDES = JSON.parse(process.env.PG_USER_OVERRIDES || '{}');
+} catch (e) {
+  console.error('Invalid PG_USER_OVERRIDES JSON, ignoring:', e.message);
+}
+
 // Slow checks (hourly): disk-full ETA alert and overdue-cron alert.
 // Delayed past the first rollup so projections have data to work with.
 const SLOW_CHECK_INTERVAL = 60 * 60 * 1000;
@@ -144,6 +154,7 @@ module.exports = {
   PG_SAMPLE_STARTUP_DELAY,
   PG_KEEP_DAYS,
   PG_CONN_ALERT_PCT,
+  PG_USER_OVERRIDES,
   parseServersFromEnv,
   loadServersFromDB,
   seedServersFromEnv,
