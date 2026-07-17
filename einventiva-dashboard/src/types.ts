@@ -301,6 +301,36 @@ export interface PgDetailedResponse {
   replication: PgReplication[]
 }
 
+// ─── AI analysis module ────────────────────────────────────────────
+export interface AiFinding {
+  severity: 'critical' | 'warning' | 'info'
+  server: string
+  title: string
+  detail: string
+  action: string
+  script: string | null
+}
+
+export interface AiAnalysis {
+  id: number
+  timestamp: string
+  provider: string | null
+  model: string | null
+  summary: string | null
+  findings: AiFinding[] | null
+  tokensIn: number | null
+  tokensOut: number | null
+  durationMs: number | null
+  error: string | null
+  sample?: unknown
+}
+
+export interface AiConfig {
+  configured: boolean
+  provider: string | null
+  model: string | null
+}
+
 export interface ScriptItem {
   id: string
   name: string
