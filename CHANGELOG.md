@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.10.1] — 2026-07-17
+
+#### Fixed
+- **AI interpretation contradicting the action plan**: a plan step said "run docker-stats to investigate the memory trend" but the interpretation, blind to that reason, replied "todo ok" — a contradiction. The alert→script and plan→script bridges now carry the originating concern as `context`, and the interpretation prompt reconciles with it: it states whether the output confirms, rules out, or is inconclusive about that concern, and flags the tool-vs-question mismatch (a point-in-time snapshot can't confirm a trend → severity `info`, points to the trend charts) instead of a naked "ok"
+
 ### [1.10.0] — 2026-07-17
 
 #### Added
@@ -144,6 +149,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.10.1] — 2026-07-17
+
+#### Corregido
+- **La interpretación IA contradecía el plan de acción**: un paso del plan decía "corre docker-stats para investigar la tendencia de memoria" pero la interpretación, ciega a ese motivo, respondía "todo ok" — una contradicción. Los puentes alerta→script y plan→script ahora llevan el motivo original como `context`, y el prompt de interpretación reconcilia con él: indica si el output confirma, descarta o es inconcluso respecto a ese motivo, y señala el desajuste herramienta-vs-pregunta (una foto puntual no puede confirmar una tendencia → severidad `info`, apunta a las gráficas de tendencia) en vez de un "ok" pelado
 
 ### [1.10.0] — 2026-07-17
 
