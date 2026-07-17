@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.5.1] — 2026-07-17
+
+#### Security
+- **Sudo password leaked into script output**: the password injection blindly rewrote every occurrence of the word `sudo` — including inside quoted strings like safe-reboot's final `echo "... Run: sudo shutdown -c ..."` — so the password was printed verbatim in the live output and, since v1.4, persisted in the execution history. Injection now only wraps `sudo` at command positions (start, `;`, `&`, `|`, `(`), and as defense in depth the password is masked (`••••`) in every output stream, stored execution, API response and server log. If you ran a sudo script whose command mentions "sudo" inside a string, purge old outputs: `UPDATE script_executions SET output='(redacted)' WHERE output LIKE '%| sudo -S%';`
+
 ### [1.5.0] — 2026-07-17
 
 #### Added
@@ -111,6 +116,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.5.1] — 2026-07-17
+
+#### Seguridad
+- **El password de sudo se filtraba al output de scripts**: la inyección reescribía a ciegas cada ocurrencia de la palabra `sudo` — incluidas las de strings entrecomillados como el `echo "... Run: sudo shutdown -c ..."` final de safe-reboot — así que el password se imprimía literal en el output en vivo y, desde v1.4, quedaba persistido en el historial. La inyección ahora solo envuelve `sudo` en posición de comando (inicio, `;`, `&`, `|`, `(`), y como defensa en profundidad el password se enmascara (`••••`) en todo stream de output, ejecución almacenada, respuesta de API y log del servidor. Si ejecutaste un script sudo cuyo comando menciona "sudo" dentro de un string, purga los outputs viejos: `UPDATE script_executions SET output='(redacted)' WHERE output LIKE '%| sudo -S%';`
 
 ### [1.5.0] — 2026-07-17
 

@@ -1,6 +1,6 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { filterWarnings, isSSHWarning, injectSudoPassword } = require('../services/ssh');
+const { filterWarnings, isSSHWarning, injectSudoPassword, maskSudoPassword } = require('../services/ssh');
 
 describe('isSSHWarning', () => {
   it('detects "WARNING: connection is not using"', () => {
@@ -91,5 +91,40 @@ describe('injectSudoPassword', () => {
 
   it('returns command unchanged when password is undefined', () => {
     assert.equal(injectSudoPassword('sudo apt update', undefined), 'sudo apt update');
+  });
+
+  it('does NOT inject into the word sudo inside quoted strings (password leak)', () => {
+    // Regression: safe-reboot's final echo mentions "sudo shutdown -c" —
+    // a blind global replace printed the password verbatim in the output
+    const cmd = 'sudo shutdown -r +1 "msg" && echo "Reboot scheduled. Run: sudo shutdown -c to cancel."';
+    const result = injectSudoPassword(cmd, 'secret123');
+    assert.equal(
+      result,
+      'echo \'secret123\' | sudo -S shutdown -r +1 "msg" && echo "Reboot scheduled. Run: sudo shutdown -c to cancel."'
+    );
+    assert.ok(result.split('secret123').length === 2, 'password must appear exactly once');
+  });
+
+  it('injects at command positions: pipes, subshells and semicolons', () => {
+    assert.equal(injectSudoPassword('a | sudo tee f', 'p'), "a | echo 'p' | sudo -S tee f");
+    assert.equal(injectSudoPassword('x; (sudo y)', 'p'), "x; (echo 'p' | sudo -S y)");
+  });
+});
+
+describe('maskSudoPassword', () => {
+  it('hides the password in injected commands for logging', () => {
+    const injected = injectSudoPassword('sudo apt update && sudo apt upgrade', 'hunter2');
+    const masked = maskSudoPassword(injected);
+    assert.ok(!masked.includes('hunter2'));
+    assert.ok(masked.includes("echo '****' | sudo -S"));
+  });
+
+  it('masks passwords containing escaped quotes', () => {
+    const injected = injectSudoPassword('sudo cmd', "pa'ss");
+    assert.ok(!maskSudoPassword(injected).includes('pa'));
+  });
+
+  it('leaves commands without injection untouched', () => {
+    assert.equal(maskSudoPassword('ls -la'), 'ls -la');
   });
 });
