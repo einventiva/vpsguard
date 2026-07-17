@@ -19,7 +19,7 @@ Monitor your VPS fleet from a single dashboard: live CPU, memory, disk metrics, 
 - **Script Execution** — Create, edit, and run shell scripts remotely with live terminal output streaming, persistent execution history with stored output, last-run badges per script, fleet-wide "Run on all" with side-by-side panes, and a typed-confirmation guard for destructive scripts
 - **Scheduled Scripts** — Give any script a cron schedule and target servers; it runs automatically, lands in the same history, and a `script` alert fires when a scheduled run fails (auto-resolves on the next passing run)
 - **Alert → Script Bridge** — Tag scripts with the alert types they remediate; active alerts show one-click shortcuts that open the script with the affected server preselected
-- **AI Analysis (Prevention)** — On-demand LLM analysis of a compact fleet snapshot via any OpenAI-compatible endpoint (LiteLLM, Ollama, OpenAI, xAI) or the native Anthropic API: executive summary plus prioritized findings with actions and suggested scripts
+- **AI Analysis (Prevention)** — LLM analysis of a compact fleet snapshot via any OpenAI-compatible endpoint (LiteLLM, Ollama, OpenAI, xAI) or the native Anthropic API: executive summary plus prioritized findings with actions and suggested scripts. Run on demand or on a cron schedule (`AI_ANALYSIS_SCHEDULE`), with desktop notifications and optional per-server `ai` alerts (`AI_OPEN_ALERTS`)
 - **Crontab Manager** — View, create, toggle, and delete cron jobs with preset schedules and human-readable descriptions
 - **Log Viewer** — Browse container logs per server with auto-scroll and copy support
 - **Server Management** — Full CRUD for servers with SSH connectivity testing
@@ -333,7 +333,7 @@ MIT
 - **Ejecución de Scripts** — Crea, edita y ejecuta scripts de shell remotamente con salida en terminal en tiempo real, historial persistente de ejecuciones con output almacenado, badges de última ejecución por script, "Run on all" para toda la flota con paneles lado a lado, y guarda de confirmación tipeada para scripts destructivos
 - **Scripts Programados** — Dale a cualquier script un schedule cron y servidores destino; corre automáticamente, cae en el mismo historial, y una alerta `script` se dispara cuando una corrida programada falla (se resuelve sola con la siguiente corrida exitosa)
 - **Puente Alertas → Scripts** — Etiqueta scripts con los tipos de alerta que remedian; las alertas activas muestran accesos de un clic que abren el script con el servidor afectado preseleccionado
-- **Análisis con IA (Prevención)** — Análisis LLM bajo demanda de un snapshot compacto de la flota vía cualquier endpoint OpenAI-compatible (LiteLLM, Ollama, OpenAI, xAI) o la API nativa de Anthropic: resumen ejecutivo más hallazgos priorizados con acciones y scripts sugeridos
+- **Análisis con IA (Prevención)** — Análisis LLM de un snapshot compacto de la flota vía cualquier endpoint OpenAI-compatible (LiteLLM, Ollama, OpenAI, xAI) o la API nativa de Anthropic: resumen ejecutivo más hallazgos priorizados con acciones y scripts sugeridos. Bajo demanda o programado por cron (`AI_ANALYSIS_SCHEDULE`), con notificaciones de escritorio y alertas `ai` por servidor opcionales (`AI_OPEN_ALERTS`)
 - **Gestor de Crontab** — Ver, crear, activar/desactivar y eliminar cron jobs con presets y descripciones legibles
 - **Visor de Logs** — Navega logs de containers por servidor con auto-scroll y copia
 - **Gestión de Servidores** — CRUD completo con prueba de conectividad SSH

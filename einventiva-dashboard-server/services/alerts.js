@@ -96,4 +96,9 @@ function sendNativeNotification(alert, event) {
   });
 }
 
-module.exports = { evaluateBreaches, sendNativeNotification };
+// Generic desktop notification (non-alert events, e.g. AI analyses)
+function sendCustomNotification(title, message, sound = 'Ping') {
+  notifier.notify({ title, message, sound, timeout: 10 });
+}
+
+module.exports = { evaluateBreaches, sendNativeNotification, sendCustomNotification };
