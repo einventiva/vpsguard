@@ -309,6 +309,15 @@ export interface AiFinding {
   detail: string
   action: string
   script: string | null
+  trend?: 'worse' | 'improved' | 'new' | 'persisting' | null
+}
+
+export interface AiActionStep {
+  horizon: 'now' | 'week' | 'watch'
+  step: string
+  server: string
+  script: string | null
+  dependsOn: string | null
 }
 
 export interface AiAnalysis {
@@ -318,6 +327,7 @@ export interface AiAnalysis {
   model: string | null
   summary: string | null
   findings: AiFinding[] | null
+  actionPlan?: AiActionStep[] | null
   tokensIn: number | null
   tokensOut: number | null
   durationMs: number | null
@@ -329,6 +339,8 @@ export interface AiConfig {
   configured: boolean
   provider: string | null
   model: string | null
+  defaultModel?: string | null
+  modelOverride?: string | null
   schedule: string | null
   openAlerts: boolean
 }

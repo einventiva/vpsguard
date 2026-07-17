@@ -1,8 +1,8 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
-const { parseFindings, groupFindingsForAlerts } = require('../services/aiAnalysis');
+const { parseAnalysis, parseFindings, groupFindingsForAlerts } = require('../services/aiAnalysis');
 const { buildOpenAIRequest, buildAnthropicRequest, extractOpenAIResponse, extractAnthropicResponse } = require('../services/aiProviders');
-const { compressRollup, formatServerStatus } = require('../services/aiSample');
+const { compressRollup, formatServerStatus, detectMaintenanceWindows } = require('../services/aiSample');
 
 describe('parseFindings', () => {
   const good = JSON.stringify({
@@ -42,6 +42,53 @@ describe('parseFindings', () => {
   test('empty findings array is valid (healthy fleet)', () => {
     const { findings } = parseFindings('{"summary":"ok","findings":[]}');
     assert.deepStrictEqual(findings, []);
+  });
+});
+
+describe('parseAnalysis actionPlan + trend (A3)', () => {
+  test('parses action plan, sorts by horizon, normalizes fields', () => {
+    const payload = JSON.stringify({
+      summary: 'x',
+      findings: [{ severity: 'warning', server: 'prod', title: 'disco', trend: 'worse' }],
+      actionPlan: [
+        { horizon: 'watch', step: 'vigilar memoria', server: 'infra' },
+        { horizon: 'now', step: 'limpiar disco', server: 'prod', script: 'clean-logs', dependsOn: 'ver disk-usage' },
+        { horizon: 'bogus', step: 'sin horizonte' },
+      ],
+    });
+    const { findings, actionPlan } = parseAnalysis(payload);
+    assert.equal(findings[0].trend, 'worse');
+    assert.equal(actionPlan[0].horizon, 'now');
+    assert.equal(actionPlan[0].script, 'clean-logs');
+    assert.equal(actionPlan[0].dependsOn, 'ver disk-usage');
+    assert.equal(actionPlan[2].horizon, 'watch'); // 'bogus' normalized to watch, sorted last
+  });
+
+  test('invalid trend becomes null; missing actionPlan is empty array', () => {
+    const { findings, actionPlan } = parseAnalysis('{"findings":[{"severity":"info","title":"a","trend":"panic"}]}');
+    assert.equal(findings[0].trend, null);
+    assert.deepStrictEqual(actionPlan, []);
+  });
+
+  test('parseFindings alias still works', () => {
+    assert.equal(typeof parseFindings, 'function');
+    assert.equal(parseFindings('{"summary":"ok","findings":[]}').summary, 'ok');
+  });
+});
+
+describe('detectMaintenanceWindows (A3)', () => {
+  test('flags servers with recent boot from uptime', () => {
+    const now = Date.now();
+    const status = {
+      infra: { metrics: { uptime: { raw: '10:30:00 up 5 min, 2 users, load average: 0.1' } } },
+      prod: { metrics: { uptime: { raw: '10:30:00 up 40 days, 2:15, load average: 0.1' } } },
+      qa: { metrics: { uptime: { raw: '10:30:00 up 1:30, 2 users' } } },
+    };
+    const windows = detectMaintenanceWindows(status, now);
+    const boots = windows.filter(w => w.kind === 'recent-boot').map(w => w.server);
+    assert.ok(boots.includes('infra')); // 5 min
+    assert.ok(boots.includes('qa'));    // 1:30 = 90 min
+    assert.ok(!boots.includes('prod')); // 40 days
   });
 });
 
