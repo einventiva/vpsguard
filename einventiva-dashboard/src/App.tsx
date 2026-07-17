@@ -64,6 +64,14 @@ function App() {
     setActiveTab('overview')
   }
 
+  // Alert → script bridge: jump to the Scripts tab with a script and
+  // target server preselected (suggestion buttons on alert rows)
+  const [scriptTarget, setScriptTarget] = useState<{ script: string; server: string } | null>(null)
+  const openScript = (script: string, server: string) => {
+    setScriptTarget({ script, server })
+    setActiveTab('scripts')
+  }
+
   const firstServer = serverKeys[0] || 'prod'
 
   return (
@@ -228,10 +236,10 @@ function App() {
                 />
               </ErrorBoundary>
             )}
-            {activeTab === 'alerts' && <ErrorBoundary fallbackLabel="Alerts panel failed"><AlertsPanel alertsApi={alertsApi} thresholdsApi={thresholdsApi} servers={servers} /></ErrorBoundary>}
+            {activeTab === 'alerts' && <ErrorBoundary fallbackLabel="Alerts panel failed"><AlertsPanel alertsApi={alertsApi} thresholdsApi={thresholdsApi} servers={servers} onOpenScript={openScript} /></ErrorBoundary>}
             {activeTab === 'docker' && <ErrorBoundary fallbackLabel="Docker panel failed"><DockerPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
             {activeTab === 'postgres' && <ErrorBoundary fallbackLabel="PostgreSQL panel failed"><PostgresPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
-            {activeTab === 'scripts' && <ErrorBoundary fallbackLabel="Scripts panel failed"><ScriptsPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
+            {activeTab === 'scripts' && <ErrorBoundary fallbackLabel="Scripts panel failed"><ScriptsPanel servers={servers} serverKeys={serverKeys} initialTarget={scriptTarget} onTargetConsumed={() => setScriptTarget(null)} /></ErrorBoundary>}
             {activeTab === 'crontab' && <ErrorBoundary fallbackLabel="Crontab panel failed"><CrontabPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
             {activeTab === 'logs' && <ErrorBoundary fallbackLabel="Log viewer failed"><LogViewer servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
             {activeTab === 'servers' && <ErrorBoundary fallbackLabel="Servers panel failed"><ServersPanel servers={servers} serverKeys={serverKeys} refetchServers={refetchServers} /></ErrorBoundary>}

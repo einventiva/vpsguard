@@ -41,7 +41,13 @@ import {
 interface ScriptsPanelProps {
   servers: Record<string, ServerInfo>
   serverKeys: string[]
+  // Alert → script bridge: preselect a script + server on mount
+  initialTarget?: { script: string; server: string } | null
+  onTargetConsumed?: () => void
 }
+
+// Alert types a script can be tagged with (suggestion buttons on alert rows)
+const TAGGABLE_ALERT_TYPES = ['cpu', 'memory', 'disk', 'disk-eta', 'inodes', 'offline', 'cron', 'ssl', 'flapping', 'systemd', 'pg-connections', 'pg-replication', 'script'] as const
 
 interface ScriptFormData {
   id: string
@@ -51,6 +57,7 @@ interface ScriptFormData {
   destructive: boolean
   schedule: string
   scheduleServers: string[]
+  alertTypes: string[]
 }
 
 const SCHEDULE_PRESETS = [
@@ -75,8 +82,10 @@ interface RunState {
 export function ScriptsPanel({
   servers,
   serverKeys,
+  initialTarget,
+  onTargetConsumed,
 }: ScriptsPanelProps) {
-  const [server, setServer] = useState<ServerAlias>(serverKeys[0] || 'prod')
+  const [server, setServer] = useState<ServerAlias>(initialTarget?.server || serverKeys[0] || 'prod')
   const [scripts, setScripts] = useState<ScriptResult[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -226,6 +235,16 @@ export function ScriptsPanel({
     setExpandedExec(null)
   }, [server])
 
+  // Consume the alert → script target once the scripts list is loaded
+  const pendingTarget = useRef(initialTarget || null)
+  useEffect(() => {
+    if (!pendingTarget.current || scripts.length === 0) return
+    const match = scripts.find(s => s.id === pendingTarget.current!.script)
+    if (match) setSelected(match)
+    pendingTarget.current = null
+    onTargetConsumed?.()
+  }, [scripts])
+
   // Destructive scripts stay disabled until the user types the script id
   const destructiveArmed = !selected?.destructive || destructiveConfirm.trim() === selected.id
   const sudoReady = !selected || !needsSudo(selected.command) || password.length > 0
@@ -286,7 +305,7 @@ export function ScriptsPanel({
 
   // CRUD handlers
   const handleNewScript = () => {
-    setEditing({ id: '', name: '', description: '', command: '', destructive: false, schedule: '', scheduleServers: [] })
+    setEditing({ id: '', name: '', description: '', command: '', destructive: false, schedule: '', scheduleServers: [], alertTypes: [] })
     setIsNew(true)
     setSelected(null)
   }
@@ -300,6 +319,7 @@ export function ScriptsPanel({
       destructive: script.destructive,
       schedule: script.schedule || '',
       scheduleServers: script.scheduleServers === '*' ? [] : script.scheduleServers.split(',').map(s => s.trim()).filter(Boolean),
+      alertTypes: script.alertTypes,
     })
     setIsNew(false)
     setSelected(null)
@@ -335,6 +355,7 @@ export function ScriptsPanel({
       const scheduleFields = {
         schedule: editing.schedule.trim() || null,
         scheduleServers: editing.scheduleServers.length > 0 ? editing.scheduleServers.join(',') : '*',
+        alertTypes: editing.alertTypes.join(','),
       }
       if (isNew) {
         const id = editing.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
@@ -459,6 +480,35 @@ export function ScriptsPanel({
               Destructive — deletes data or disrupts services; executing it requires typing the script id
             </span>
           </label>
+
+          <div className="border-t border-zinc-800 pt-4 space-y-2">
+            <label className="text-xs text-zinc-400 font-semibold uppercase tracking-wider block">
+              Suggest for alerts (optional)
+            </label>
+            <p className="text-xs text-zinc-500">
+              Active alerts of these types will show a shortcut button to this script.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {TAGGABLE_ALERT_TYPES.map(t => {
+                const on = editing.alertTypes.includes(t)
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setEditing({
+                      ...editing,
+                      alertTypes: on ? editing.alertTypes.filter(x => x !== t) : [...editing.alertTypes, t],
+                    })}
+                    className={`text-xs px-2 py-1 rounded border font-mono transition-colors ${on
+                      ? 'border-blue-700 bg-blue-900/30 text-blue-300'
+                      : 'border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600'}`}
+                  >
+                    {t}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
 
           <div className="border-t border-zinc-800 pt-4 space-y-3">
             <div className="flex items-center gap-2">
