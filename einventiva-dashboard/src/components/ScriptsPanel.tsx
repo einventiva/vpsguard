@@ -5,6 +5,7 @@ import { api, ApiError } from '@/lib/api'
 import { getSharedSocket, releaseSharedSocket } from '@/lib/socket'
 import { useAutoScroll } from '@/hooks/useAutoScroll'
 import { formatRelativeTime, formatDuration } from '@/lib/formatters'
+import { parseAnsi, type AnsiState, type AnsiSegment } from '@/lib/ansi'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -385,12 +386,43 @@ export function ScriptsPanel({
     }
   }
 
-  const renderOutputChunks = (chunks: OutputChunk[]) =>
-    chunks.map((chunk, i) => (
-      <span key={i} className={chunk.stream === 'stderr' ? 'text-amber-400' : 'text-green-400'}>
-        {chunk.data}
-      </span>
-    ))
+  // ANSI-aware rendering: real terminal colors when the output carries
+  // escape codes, stream defaults (green/amber) otherwise. Style state
+  // threads across chunks so colors survive chunk boundaries.
+  const renderAnsiSegments = (segments: AnsiSegment[], fallbackClass: string, keyPrefix: string) =>
+    segments.map((seg, i) => {
+      const styled = seg.color || seg.bgColor || seg.bold || seg.dim
+      return (
+        <span
+          key={`${keyPrefix}-${i}`}
+          className={styled ? undefined : fallbackClass}
+          style={styled ? {
+            color: seg.color,
+            backgroundColor: seg.bgColor,
+            fontWeight: seg.bold ? 600 : undefined,
+            opacity: seg.dim ? 0.7 : undefined,
+          } : undefined}
+        >
+          {seg.text}
+        </span>
+      )
+    })
+
+  const renderOutputChunks = (chunks: OutputChunk[]) => {
+    let state: AnsiState = {}
+    return chunks.map((chunk, i) => {
+      const { segments, endState } = parseAnsi(chunk.data, state)
+      state = endState
+      return renderAnsiSegments(
+        segments,
+        chunk.stream === 'stderr' ? 'text-amber-400' : 'text-green-400',
+        String(i)
+      )
+    })
+  }
+
+  const renderStoredOutput = (text: string) =>
+    renderAnsiSegments(parseAnsi(text).segments, 'text-zinc-300', 'h')
 
   const LastRunBadge = ({ exec }: { exec: ScriptExecution | undefined }) => {
     if (!exec) {
@@ -1095,7 +1127,11 @@ export function ScriptsPanel({
                   </div>
                   {expanded && (
                     <pre className="max-h-64 overflow-auto bg-black border-t border-zinc-800 p-3 font-mono text-xs text-zinc-300 whitespace-pre-wrap break-words">
-                      {execOutputs[exec.id] === undefined ? 'Loading output...' : execOutputs[exec.id] || '(no output)'}
+                      {execOutputs[exec.id] === undefined
+                        ? 'Loading output...'
+                        : execOutputs[exec.id]
+                          ? renderStoredOutput(execOutputs[exec.id])
+                          : '(no output)'}
                     </pre>
                   )}
                 </div>
