@@ -115,6 +115,7 @@ function AlertRow({ alert, serverName, onAck, suggestions, onOpenScript }: {
               variant="outline"
               size="sm"
               onClick={() => onAck(alert.id)}
+              title="Marca esta alerta como vista / en atención. No la resuelve — sigue activa hasta que la condición desaparezca — pero deja de contar en el badge de alertas nuevas del menú."
               className="h-7 px-2 border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-xs"
             >
               Acknowledge
@@ -152,6 +153,27 @@ export function AlertsPanel({ alertsApi, thresholdsApi, servers, onOpenScript }:
 
   return (
     <div className="space-y-4">
+      {/* Purpose + legend: what this screen is and what each state means */}
+      <div className="space-y-2">
+        <p className="text-sm text-zinc-300">
+          Centro de alertas de la flota — cada problema detectado (umbrales, disco, cron, SSL, IA…) aparece aquí con su ciclo de vida completo.
+        </p>
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-zinc-500">
+          <span className="flex items-center gap-1.5">
+            <Badge className="bg-red-900/40 text-red-300 border border-red-800 text-[10px]">Active</Badge>
+            la condición sigue ocurriendo (se resuelve sola al desaparecer)
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="text-zinc-400 flex items-center gap-1"><Check className="w-3 h-3" /> Ack</span>
+            la marcaste como vista / en atención — sigue activa pero deja de contar como nueva
+          </span>
+          <span className="flex items-center gap-1.5">
+            <Badge className="bg-green-900/30 text-green-400 border border-green-800/50 text-[10px]">Resolved</Badge>
+            la condición se resolvió automáticamente
+          </span>
+        </div>
+      </div>
+
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Button
@@ -194,7 +216,8 @@ export function AlertsPanel({ alertsApi, thresholdsApi, servers, onOpenScript }:
       </Card>
 
       <p className="text-xs text-zinc-600">
-        Alerts open after 2 consecutive samples over threshold (~30s) and resolve after 4 clean samples (~1min). Offline alerts resolve on the first successful connection.
+        Las alertas abren tras 2 muestras consecutivas sobre el umbral (~30s) y resuelven tras 4 muestras limpias (~1min); las de offline resuelven a la primera conexión exitosa.
+        Reconocer (Acknowledge) es opcional: solo silencia el contador de nuevas — no es necesario para que la alerta se cierre.
       </p>
 
       <ThresholdsEditor thresholdsApi={thresholdsApi} servers={servers} />
