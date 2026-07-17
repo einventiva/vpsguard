@@ -3,7 +3,17 @@ const db = require('../db');
 const { log, handleError } = require('../services/logger');
 const { executeSSHCommand } = require('../services/ssh');
 const { injectSudoPassword } = require('../services/ssh');
+const { isValidCron } = require('../services/scheduler');
 const { SCRIPT_TIMEOUT } = require('../config');
+
+// null/empty clears the schedule; anything else must be 5-field cron
+function validateSchedule(schedule) {
+  if (schedule === undefined || schedule === null || schedule === '') return null;
+  if (!isValidCron(schedule)) {
+    return 'Invalid schedule: must be a 5-field cron expression (e.g. "0 3 * * *")';
+  }
+  return null;
+}
 
 function createRouter(getServers) {
   const router = express.Router();
@@ -22,14 +32,18 @@ function createRouter(getServers) {
   // Create script
   router.post('/scripts', (req, res) => {
     try {
-      const { id, name, description, command, destructive } = req.body;
+      const { id, name, description, command, destructive, schedule, scheduleServers } = req.body;
       if (!id || !name || !command) {
         return res.status(400).json({ error: 'id, name, and command are required' });
       }
       if (db.getScript(id)) {
         return res.status(409).json({ error: `Script '${id}' already exists` });
       }
-      const script = db.createScript({ id, name, description, command, destructive });
+      const scheduleError = validateSchedule(schedule);
+      if (scheduleError) {
+        return res.status(400).json({ error: scheduleError });
+      }
+      const script = db.createScript({ id, name, description, command, destructive, schedule, scheduleServers });
       log('Script created', { id });
       res.status(201).json(script);
     } catch (error) {
@@ -44,8 +58,12 @@ function createRouter(getServers) {
       if (!db.getScript(id)) {
         return res.status(404).json({ error: `Script '${id}' not found` });
       }
-      const { name, description, command, destructive } = req.body;
-      const script = db.updateScript(id, { name, description, command, destructive });
+      const { name, description, command, destructive, schedule, scheduleServers } = req.body;
+      const scheduleError = validateSchedule(schedule);
+      if (scheduleError) {
+        return res.status(400).json({ error: scheduleError });
+      }
+      const script = db.updateScript(id, { name, description, command, destructive, schedule: schedule === '' ? null : schedule, scheduleServers });
       log('Script updated', { id });
       res.json(script);
     } catch (error) {

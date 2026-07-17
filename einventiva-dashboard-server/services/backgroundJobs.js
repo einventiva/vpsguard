@@ -10,6 +10,7 @@ const { getCronStatus } = require('./cronWatch');
 const { samplePgServer } = require('./pgHistory');
 const { fetchCertificates } = require('./sslCheck');
 const { fetchRestartCounts, computeRestartDeltas, toSnapshot } = require('./containerWatch');
+const { dueScripts, resolveTargetServers } = require('./scheduler');
 const { sendWebhook } = require('./notify');
 const { setCache } = require('./cache');
 const {
@@ -17,7 +18,7 @@ const {
   ROLLUP_INTERVAL, ROLLUP_STARTUP_DELAY, ROLLUP_KEEP_DAYS,
   SLOW_CHECK_INTERVAL, SLOW_CHECK_STARTUP_DELAY, DISK_ETA_ALERT_DAYS, SSL_ALERT_DAYS,
   PG_SAMPLE_INTERVAL, PG_SAMPLE_STARTUP_DELAY, PG_KEEP_DAYS, PG_CONN_ALERT_PCT, PG_REPL_LAG_ALERT_MB,
-  ALERT_SAMPLES_TO_OPEN, ALERT_SAMPLES_TO_RESOLVE,
+  ALERT_SAMPLES_TO_OPEN, ALERT_SAMPLES_TO_RESOLVE, SCRIPT_TIMEOUT,
 } = require('../config');
 
 async function fetchAllServerStatus(getServers) {
@@ -323,6 +324,81 @@ async function runPgSampling(io, getServers) {
   }
 }
 
+// Scheduled scripts: run due scripts on their target servers, persist
+// the executions like manual runs, and keep a per-server `script`
+// alert reflecting whether any scheduled script's last run failed.
+async function runScheduledScripts(io, getServers, now = new Date()) {
+  const SERVERS = getServers();
+  const serverKeys = Object.keys(SERVERS);
+  const scheduled = db.getScripts().filter(s => s.schedule);
+  const due = dueScripts(scheduled, now);
+
+  const jobs = [];
+  for (const script of due) {
+    for (const key of resolveTargetServers(script, serverKeys)) {
+      jobs.push({ script, key });
+    }
+  }
+  if (jobs.length > 0) {
+    log('Running scheduled scripts', { scripts: [...new Set(jobs.map(j => j.script.id))], targets: jobs.length });
+  }
+
+  await Promise.allSettled(jobs.map(async ({ script, key }) => {
+    const startTime = Date.now();
+    let exitCode = 0;
+    try {
+      const output = await executeSSHCommand(SERVERS[key].alias, script.command, SCRIPT_TIMEOUT);
+      db.logExecution({
+        scriptId: script.id, server: key, exitCode: 0,
+        startedAt: new Date(startTime).toISOString(), durationMs: Date.now() - startTime,
+        output, triggeredBy: 'schedule',
+      });
+    } catch (err) {
+      exitCode = typeof err.code === 'number' ? err.code : 1;
+      db.logExecution({
+        scriptId: script.id, server: key, exitCode,
+        startedAt: new Date(startTime).toISOString(), durationMs: Date.now() - startTime,
+        output: [
+          err.stdout, err.stderr,
+          err.killed ? `\n[dashboard] Timed out after ${Math.round(SCRIPT_TIMEOUT / 1000)}s — the remote command may still be running on the server.\n` : '',
+        ].filter(Boolean).join('') || err.message,
+        triggeredBy: 'schedule',
+      });
+      log('Scheduled script failed', { script: script.id, server: key, exitCode, error: err.message });
+    }
+    // Open panels refresh their history/badges on this
+    io.emit('execution:finished', { script: script.id, server: key, exitCode, triggeredBy: 'schedule' });
+  }));
+
+  // Alert on every tick (not just after runs) so removing a schedule
+  // or a passing rerun resolves within a minute
+  const lastRuns = new Map(db.getLastScheduledExecutions().map(r => [`${r.server}|${r.script_id}`, r]));
+  for (const key of serverKeys) {
+    const failing = [];
+    for (const script of scheduled) {
+      if (!resolveTargetServers(script, serverKeys).includes(key)) continue;
+      const last = lastRuns.get(`${key}|${script.id}`);
+      if (last && last.exit_code !== 0) failing.push(`${script.id} (exit ${last.exit_code})`);
+    }
+    transitionAlert(io, {
+      server: key,
+      type: 'script',
+      active: failing.length > 0,
+      severity: 'warning',
+      message: `${SERVERS[key].displayName}: scheduled script(s) failing: ${failing.join(', ')}`,
+      value: failing.length || null,
+      threshold: null,
+    });
+  }
+}
+
+function startSchedulerLoop(io, getServers) {
+  const tick = () => runScheduledScripts(io, getServers).catch(e => log('Scheduler loop error', { error: e.message }));
+  // Align ticks to minute boundaries so cron minute matching holds
+  const msToNextMinute = 60000 - (Date.now() % 60000);
+  setTimeout(() => { tick(); setInterval(tick, 60000); }, msToNextMinute + 500);
+}
+
 function startPgSampleLoop(io, getServers) {
   const run = () => runPgSampling(io, getServers).catch(e => log('PG sampling loop error', { error: e.message }));
   setTimeout(run, PG_SAMPLE_STARTUP_DELAY);
@@ -349,4 +425,4 @@ function startRollupLoop() {
   setInterval(rollup, ROLLUP_INTERVAL);
 }
 
-module.exports = { fetchAllServerStatus, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, runSlowChecks, runPgSampling };
+module.exports = { fetchAllServerStatus, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, runSlowChecks, runPgSampling, runScheduledScripts };

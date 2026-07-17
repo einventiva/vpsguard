@@ -33,6 +33,7 @@ import {
   Trash2,
   TriangleAlert,
   Layers,
+  CalendarClock,
   X,
   Save,
 } from 'lucide-react'
@@ -48,7 +49,16 @@ interface ScriptFormData {
   description: string
   command: string
   destructive: boolean
+  schedule: string
+  scheduleServers: string[]
 }
+
+const SCHEDULE_PRESETS = [
+  { label: 'Hourly', expr: '0 * * * *' },
+  { label: 'Every 6 hours', expr: '0 */6 * * *' },
+  { label: 'Daily 03:00', expr: '0 3 * * *' },
+  { label: 'Weekly Sun 04:00', expr: '0 4 * * 0' },
+]
 
 interface OutputChunk {
   stream: 'stdout' | 'stderr'
@@ -158,10 +168,14 @@ export function ScriptsPanel({
       })
     }
 
+    // Scheduled runs finish server-side; refresh history and badges
+    const onExecutionFinished = () => refreshRef.current()
+
     socket.on('script:start', onStart)
     socket.on('script:output', onOutput)
     socket.on('script:done', onDone)
     socket.on('script:error', onError)
+    socket.on('execution:finished', onExecutionFinished)
 
     socketRef.current = socket
 
@@ -170,6 +184,7 @@ export function ScriptsPanel({
       socket.off('script:output', onOutput)
       socket.off('script:done', onDone)
       socket.off('script:error', onError)
+      socket.off('execution:finished', onExecutionFinished)
       releaseSharedSocket()
       socketRef.current = null
     }
@@ -271,7 +286,7 @@ export function ScriptsPanel({
 
   // CRUD handlers
   const handleNewScript = () => {
-    setEditing({ id: '', name: '', description: '', command: '', destructive: false })
+    setEditing({ id: '', name: '', description: '', command: '', destructive: false, schedule: '', scheduleServers: [] })
     setIsNew(true)
     setSelected(null)
   }
@@ -283,6 +298,8 @@ export function ScriptsPanel({
       description: script.description,
       command: script.command,
       destructive: script.destructive,
+      schedule: script.schedule || '',
+      scheduleServers: script.scheduleServers === '*' ? [] : script.scheduleServers.split(',').map(s => s.trim()).filter(Boolean),
     })
     setIsNew(false)
     setSelected(null)
@@ -315,6 +332,10 @@ export function ScriptsPanel({
     setSaving(true)
     setError(null)
     try {
+      const scheduleFields = {
+        schedule: editing.schedule.trim() || null,
+        scheduleServers: editing.scheduleServers.length > 0 ? editing.scheduleServers.join(',') : '*',
+      }
       if (isNew) {
         const id = editing.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
         await api.createScript({
@@ -323,6 +344,7 @@ export function ScriptsPanel({
           description: editing.description,
           command: editing.command,
           destructive: editing.destructive,
+          ...scheduleFields,
         })
       } else {
         await api.updateScript(editing.id, {
@@ -330,6 +352,7 @@ export function ScriptsPanel({
           description: editing.description,
           command: editing.command,
           destructive: editing.destructive,
+          ...scheduleFields,
         })
       }
       await fetchScripts()
@@ -436,6 +459,65 @@ export function ScriptsPanel({
               Destructive — deletes data or disrupts services; executing it requires typing the script id
             </span>
           </label>
+
+          <div className="border-t border-zinc-800 pt-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <CalendarClock className="w-4 h-4 text-blue-400" />
+              <label className="text-xs text-zinc-400 font-semibold uppercase tracking-wider">
+                Schedule (optional)
+              </label>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={editing.schedule}
+                onChange={(e) => setEditing({ ...editing, schedule: e.target.value })}
+                placeholder="cron expression, e.g. 0 3 * * *  (empty = manual only)"
+                className="flex-1 bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-50 font-mono placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+              />
+              {SCHEDULE_PRESETS.map(p => (
+                <Button
+                  key={p.expr}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditing({ ...editing, schedule: p.expr })}
+                  className={`border-zinc-700 text-xs ${editing.schedule === p.expr ? 'text-blue-400 border-blue-800' : 'text-zinc-400'} hover:bg-zinc-800`}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+            {editing.schedule.trim() && (
+              <div className="space-y-2">
+                <p className="text-xs text-zinc-500">
+                  Runs on: {editing.scheduleServers.length === 0 ? 'all servers' : editing.scheduleServers.join(', ')}
+                </p>
+                <div className="flex items-center gap-4">
+                  {serverKeys.map(k => (
+                    <label key={k} className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={editing.scheduleServers.length === 0 || editing.scheduleServers.includes(k)}
+                        onChange={(e) => {
+                          const current = editing.scheduleServers.length === 0 ? [...serverKeys] : [...editing.scheduleServers]
+                          const next = e.target.checked ? [...new Set([...current, k])] : current.filter(s => s !== k)
+                          // all selected -> store as '*' (empty list)
+                          setEditing({ ...editing, scheduleServers: next.length === serverKeys.length ? [] : next })
+                        }}
+                        className="accent-blue-600"
+                      />
+                      {serverInfo[k]?.displayName || k}
+                    </label>
+                  ))}
+                </div>
+                {editing.command.includes('sudo') && (
+                  <p className="text-xs text-amber-400/80">
+                    Scheduled runs execute without a password — this script uses sudo, so the servers need passwordless sudo.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
 
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-900/20 border border-red-800 rounded text-red-200 text-sm">
@@ -847,6 +929,16 @@ export function ScriptsPanel({
                       <LastRunBadge exec={latest[script.id]} />
                     </div>
                   </div>
+                  {script.schedule && (
+                    <span
+                      className="flex items-center gap-1 text-xs text-blue-400/90 mb-2"
+                      title={`Scheduled: ${script.schedule} on ${script.scheduleServers === '*' ? 'all servers' : script.scheduleServers}`}
+                    >
+                      <CalendarClock className="w-3 h-3" />
+                      <span className="font-mono">{script.schedule}</span>
+                      <span className="text-zinc-500">· {script.scheduleServers === '*' ? 'all servers' : script.scheduleServers}</span>
+                    </span>
+                  )}
                   <p className="text-xs text-zinc-400 mb-3 flex-1 line-clamp-2">
                     {script.description}
                   </p>
@@ -936,6 +1028,9 @@ export function ScriptsPanel({
                     )}
                     <span className="font-mono text-sm text-zinc-200 flex-1 truncate">
                       {exec.script_id || '(unknown)'}
+                      {exec.triggered_by === 'schedule' && (
+                        <span className="ml-2 text-[10px] text-blue-400 bg-blue-900/30 px-1.5 py-0.5 rounded uppercase tracking-wider">auto</span>
+                      )}
                     </span>
                     {!ok && (
                       <span className="text-xs text-red-400 font-mono">exit {exec.exit_code}</span>
