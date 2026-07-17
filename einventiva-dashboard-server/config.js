@@ -29,6 +29,10 @@ const ALERT_SAMPLES_TO_RESOLVE = parseInt(process.env.ALERT_SAMPLES_TO_RESOLVE |
 const ALERT_WEBHOOK_URL = process.env.ALERT_WEBHOOK_URL || '';
 
 const METRICS_INTERVAL = 15000;
+// Per-process/container detail is stored every Nth metrics cycle
+// (~60s): nobody diagnoses at 15s granularity and it grows ~35x
+// faster than the main series
+const DETAIL_EVERY_CYCLES = Math.max(1, Math.round(60000 / METRICS_INTERVAL));
 const PRUNE_INTERVAL = 24 * 60 * 60 * 1000;
 const PRUNE_STARTUP_DELAY = 60 * 1000;
 const ROLLUP_INTERVAL = 60 * 60 * 1000;
@@ -43,6 +47,8 @@ const PG_SAMPLE_STARTUP_DELAY = 2 * 60 * 1000;
 const PG_KEEP_DAYS = parseInt(process.env.PG_KEEP_DAYS || '90');
 // Alert when connections exceed this fraction of max_connections
 const PG_CONN_ALERT_PCT = parseInt(process.env.PG_CONN_ALERT_PCT || '80');
+// Alert when a standby's replication lag exceeds this (critical at 4x)
+const PG_REPL_LAG_ALERT_MB = parseInt(process.env.PG_REPL_LAG_ALERT_MB || '100');
 
 // Explicit container -> role mapping for cases auto-detection can't
 // guess (e.g. a role name that doesn't match the container name).
@@ -139,6 +145,7 @@ module.exports = {
   ALERT_SAMPLES_TO_RESOLVE,
   ALERT_WEBHOOK_URL,
   METRICS_INTERVAL,
+  DETAIL_EVERY_CYCLES,
   PRUNE_INTERVAL,
   PRUNE_STARTUP_DELAY,
   PRUNE_KEEP_DAYS,
@@ -154,6 +161,7 @@ module.exports = {
   PG_SAMPLE_STARTUP_DELAY,
   PG_KEEP_DAYS,
   PG_CONN_ALERT_PCT,
+  PG_REPL_LAG_ALERT_MB,
   PG_USER_OVERRIDES,
   parseServersFromEnv,
   loadServersFromDB,
