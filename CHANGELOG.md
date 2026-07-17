@@ -10,6 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.8.0] — 2026-07-17
+
+#### Added
+- **Scheduled AI analyses (A2)**: `AI_ANALYSIS_SCHEDULE` (5-field cron, e.g. `0 9,12,15,18 * * *`) runs the fleet analysis automatically on a minute-aligned loop; results land via socket in the Prevención tab (with a toast) plus a desktop notification summarizing the findings
+- **Optional `ai` alerts**: with `AI_OPEN_ALERTS=true`, warning/critical AI findings open per-server alerts of type `ai` through the standard pipeline (socket, native notification, webhook), auto-resolving when a later analysis comes back clean for that server; info findings never open alerts
+- Prevención tab shows the active schedule and the open-alerts flag; manual runs share the same notification pipeline
+
 ### [1.7.0] — 2026-07-17
 
 #### Added
@@ -127,6 +134,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.8.0] — 2026-07-17
+
+#### Agregado
+- **Análisis IA programados (A2)**: `AI_ANALYSIS_SCHEDULE` (cron de 5 campos, p.ej. `0 9,12,15,18 * * *`) ejecuta el análisis de la flota automáticamente en un loop alineado al minuto; los resultados llegan por socket a la pestaña Prevención (con toast) más una notificación de escritorio resumiendo los hallazgos
+- **Alertas `ai` opcionales**: con `AI_OPEN_ALERTS=true`, los hallazgos warning/critical abren alertas tipo `ai` por servidor vía la tubería estándar (socket, notificación nativa, webhook), con auto-resolución cuando un análisis posterior sale limpio para ese servidor; los hallazgos info nunca abren alertas
+- La pestaña Prevención muestra el schedule activo y el flag de alertas; las corridas manuales comparten la misma tubería de notificación
 
 ### [1.7.0] — 2026-07-17
 
