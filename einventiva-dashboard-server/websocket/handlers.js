@@ -49,14 +49,28 @@ function registerHandlers(io, getServers) {
       const startTime = Date.now();
       const child = exec(sshCommand, { timeout: SCRIPT_TIMEOUT });
 
+      // Accumulate output for the persistent execution log. Cap what we
+      // buffer in memory; db.logExecution truncates again to its own max.
+      const OUTPUT_BUFFER_CAP = 64 * 1024;
+      let outputBuffer = '';
+      const appendOutput = (text) => {
+        if (outputBuffer.length >= OUTPUT_BUFFER_CAP) {
+          outputBuffer = outputBuffer.slice(-(OUTPUT_BUFFER_CAP / 2));
+        }
+        outputBuffer += text;
+      };
+
       child.stdout.on('data', (chunk) => {
-        socket.emit('script:output', { stream: 'stdout', data: chunk.toString() });
+        const text = chunk.toString();
+        appendOutput(text);
+        socket.emit('script:output', { stream: 'stdout', data: text, script, server: serverKey });
       });
 
       child.stderr.on('data', (chunk) => {
         const text = chunk.toString();
         if (isSSHWarning(text)) return;
-        socket.emit('script:output', { stream: 'stderr', data: text });
+        appendOutput(text);
+        socket.emit('script:output', { stream: 'stderr', data: text, script, server: serverKey });
       });
 
       child.on('close', (code) => {
@@ -68,11 +82,12 @@ function registerHandlers(io, getServers) {
           exitCode: code,
           startedAt: new Date(startTime).toISOString(),
           durationMs: Date.now() - startTime,
+          output: outputBuffer,
         });
       });
 
       child.on('error', (err) => {
-        socket.emit('script:error', { error: err.message });
+        socket.emit('script:error', { error: err.message, script, server: serverKey });
       });
     });
 

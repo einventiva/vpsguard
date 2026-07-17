@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Socket } from 'socket.io-client'
-import type { ServerAlias, ScriptResult, ServerInfo } from '@/types'
+import type { ServerAlias, ScriptResult, ScriptExecution, ServerInfo } from '@/types'
 import { api, ApiError } from '@/lib/api'
 import { getSharedSocket, releaseSharedSocket } from '@/lib/socket'
 import { useAutoScroll } from '@/hooks/useAutoScroll'
+import { formatRelativeTime, formatDuration } from '@/lib/formatters'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import {
@@ -22,12 +23,16 @@ import {
   Terminal,
   Clock,
   ChevronLeft,
+  ChevronDown,
+  ChevronRight,
   Shield,
   Eye,
   Lock,
   Plus,
   Pencil,
   Trash2,
+  TriangleAlert,
+  Layers,
   X,
   Save,
 } from 'lucide-react'
@@ -42,6 +47,19 @@ interface ScriptFormData {
   name: string
   description: string
   command: string
+  destructive: boolean
+}
+
+interface OutputChunk {
+  stream: 'stdout' | 'stderr'
+  data: string
+}
+
+// Per-server live run state; more than one key means "Run on all" mode
+interface RunState {
+  output: OutputChunk[]
+  executing: boolean
+  exitCode: number | null
 }
 
 export function ScriptsPanel({
@@ -50,17 +68,22 @@ export function ScriptsPanel({
 }: ScriptsPanelProps) {
   const [server, setServer] = useState<ServerAlias>(serverKeys[0] || 'prod')
   const [scripts, setScripts] = useState<ScriptResult[]>([])
-  const [history, setHistory] = useState<ScriptResult[]>([])
   const [loading, setLoading] = useState(true)
-  const [executing, setExecuting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [output, setOutput] = useState<string[]>([])
-  const [exitCode, setExitCode] = useState<number | null>(null)
+  const [runs, setRuns] = useState<Record<string, RunState>>({})
+
+  // Persisted execution history + last-run badges
+  const [executions, setExecutions] = useState<ScriptExecution[]>([])
+  const [latest, setLatest] = useState<Record<string, ScriptExecution>>({})
+  const [expandedExec, setExpandedExec] = useState<number | null>(null)
+  const [execOutputs, setExecOutputs] = useState<Record<number, string>>({})
 
   // Detail/confirmation state
   const [selected, setSelected] = useState<ScriptResult | null>(null)
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [destructiveConfirm, setDestructiveConfirm] = useState('')
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
   const serverInfo = servers
 
   // CRUD state
@@ -69,41 +92,70 @@ export function ScriptsPanel({
   const [saving, setSaving] = useState(false)
 
   const socketRef = useRef<Socket | null>(null)
-  const scrollRef = useAutoScroll<HTMLPreElement>([output])
+  const currentRun = runs[server]
+  const runServers = Object.keys(runs)
+  const runAllMode = runServers.length > 1
+  const anyExecuting = Object.values(runs).some(r => r.executing)
+  const scrollRef = useAutoScroll<HTMLPreElement>([currentRun?.output])
 
   const needsSudo = (command: string) => command.includes('sudo')
+
+  const fetchExecutions = useCallback(async () => {
+    try {
+      setExecutions(await api.getScriptHistory(server, 20))
+    } catch (err) {
+      console.error('Failed to fetch execution history:', err)
+    }
+  }, [server])
+
+  const fetchLatest = useCallback(async () => {
+    try {
+      setLatest(await api.getLatestExecutions(server))
+    } catch (err) {
+      console.error('Failed to fetch latest executions:', err)
+    }
+  }, [server])
+
+  // Socket handlers are registered once; route refreshes through a ref
+  // so they always see the current server selection
+  const refreshRef = useRef<() => void>(() => {})
+  refreshRef.current = () => {
+    fetchExecutions()
+    fetchLatest()
+  }
 
   // Socket connection
   useEffect(() => {
     const socket = getSharedSocket()
 
-    const onStart = () => {
-      setExecuting(true)
-      setExitCode(null)
+    const onStart = ({ server: srv }: { script: string; server: string }) => {
+      setRuns(prev => ({ ...prev, [srv]: { output: [], executing: true, exitCode: null } }))
     }
 
-    const onOutput = ({ stream, data }: { stream: string; data: string }) => {
-      setOutput((prev) => [...prev, data])
+    const onOutput = ({ stream, data, server: srv }: { stream: 'stdout' | 'stderr'; data: string; server?: string }) => {
+      setRuns(prev => {
+        const key = srv ?? Object.keys(prev)[0]
+        const run = prev[key]
+        if (!run) return prev
+        return { ...prev, [key]: { ...run, output: [...run.output, { stream, data }] } }
+      })
     }
 
-    const onDone = ({ code, script: scriptId, server: srv }: { code: number; script: string; server: string }) => {
-      setExecuting(false)
-      setExitCode(code)
-      setHistory((prev) => [{
-        id: scriptId,
-        name: scriptId.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
-        description: '',
-        command: '',
-        output: `Exit code: ${code}`,
-        status: code === 0 ? 'success' : 'error',
-        timestamp: new Date().toLocaleString(),
-        server: srv as ServerAlias,
-      }, ...prev.slice(0, 9)])
+    const onDone = ({ code, server: srv }: { code: number; script: string; server: string }) => {
+      setRuns(prev => {
+        const run = prev[srv]
+        if (!run) return prev
+        return { ...prev, [srv]: { ...run, executing: false, exitCode: code } }
+      })
+      refreshRef.current()
     }
 
-    const onError = ({ error: errMsg }: { error: string }) => {
-      setExecuting(false)
+    const onError = ({ error: errMsg, server: srv }: { error: string; server?: string }) => {
       setError(errMsg)
+      setRuns(prev => {
+        if (!srv || !prev[srv]) return prev
+        return { ...prev, [srv]: { ...prev[srv], executing: false, exitCode: prev[srv].exitCode ?? 1 } }
+      })
     }
 
     socket.on('script:start', onStart)
@@ -149,30 +201,77 @@ export function ScriptsPanel({
 
   useEffect(() => {
     fetchScripts()
+    fetchExecutions()
+    fetchLatest()
     setSelected(null)
     setPassword('')
-    setOutput([])
-    setExitCode(null)
+    setDestructiveConfirm('')
+    setRuns({})
     setEditing(null)
+    setExpandedExec(null)
   }, [server])
+
+  // Destructive scripts stay disabled until the user types the script id
+  const destructiveArmed = !selected?.destructive || destructiveConfirm.trim() === selected.id
+  const sudoReady = !selected || !needsSudo(selected.command) || password.length > 0
+
+  const resetRun = () => {
+    setRuns({})
+    setDestructiveConfirm('')
+  }
 
   const handleRunScript = () => {
     if (!selected || !socketRef.current) return
-    setOutput([])
     setError(null)
-    setExitCode(null)
-
+    setRuns({ [server]: { output: [], executing: true, exitCode: null } })
     socketRef.current.emit('execute:script', {
       server,
       script: selected.id,
       password: needsSudo(selected.command) ? password : undefined,
     })
     setPassword('')
+    setDestructiveConfirm('')
+  }
+
+  const handleRunAll = () => {
+    if (!selected || !socketRef.current) return
+    setError(null)
+    const initial: Record<string, RunState> = {}
+    for (const key of serverKeys) {
+      initial[key] = { output: [], executing: true, exitCode: null }
+    }
+    setRuns(initial)
+    for (const key of serverKeys) {
+      socketRef.current.emit('execute:script', {
+        server: key,
+        script: selected.id,
+        password: needsSudo(selected.command) ? password : undefined,
+      })
+    }
+    setPassword('')
+    setDestructiveConfirm('')
+  }
+
+  const toggleExecution = async (exec: ScriptExecution) => {
+    if (expandedExec === exec.id) {
+      setExpandedExec(null)
+      return
+    }
+    setExpandedExec(exec.id)
+    if (execOutputs[exec.id] === undefined && (exec.output_bytes ?? 0) > 0) {
+      try {
+        const full = await api.getExecution(exec.id)
+        setExecOutputs(prev => ({ ...prev, [exec.id]: full.output || '' }))
+      } catch (err) {
+        console.error('Failed to fetch execution output:', err)
+        setExecOutputs(prev => ({ ...prev, [exec.id]: '(failed to load output)' }))
+      }
+    }
   }
 
   // CRUD handlers
   const handleNewScript = () => {
-    setEditing({ id: '', name: '', description: '', command: '' })
+    setEditing({ id: '', name: '', description: '', command: '', destructive: false })
     setIsNew(true)
     setSelected(null)
   }
@@ -183,6 +282,7 @@ export function ScriptsPanel({
       name: script.name,
       description: script.description,
       command: script.command,
+      destructive: script.destructive,
     })
     setIsNew(false)
     setSelected(null)
@@ -194,9 +294,20 @@ export function ScriptsPanel({
       await fetchScripts()
       setSelected(null)
       setEditing(null)
+      setConfirmingDelete(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete script')
     }
+  }
+
+  // Two-step delete: first click arms, second click (within 4s) deletes
+  const requestDelete = (scriptId: string) => {
+    if (confirmingDelete === scriptId) {
+      handleDeleteScript(scriptId)
+      return
+    }
+    setConfirmingDelete(scriptId)
+    setTimeout(() => setConfirmingDelete(prev => (prev === scriptId ? null : prev)), 4000)
   }
 
   const handleSaveScript = async () => {
@@ -211,12 +322,14 @@ export function ScriptsPanel({
           name: editing.name,
           description: editing.description,
           command: editing.command,
+          destructive: editing.destructive,
         })
       } else {
         await api.updateScript(editing.id, {
           name: editing.name,
           description: editing.description,
           command: editing.command,
+          destructive: editing.destructive,
         })
       }
       await fetchScripts()
@@ -226,6 +339,30 @@ export function ScriptsPanel({
     } finally {
       setSaving(false)
     }
+  }
+
+  const renderOutputChunks = (chunks: OutputChunk[]) =>
+    chunks.map((chunk, i) => (
+      <span key={i} className={chunk.stream === 'stderr' ? 'text-amber-400' : 'text-green-400'}>
+        {chunk.data}
+      </span>
+    ))
+
+  const LastRunBadge = ({ exec }: { exec: ScriptExecution | undefined }) => {
+    if (!exec) {
+      return <span className="text-xs text-zinc-600">never run</span>
+    }
+    const ok = exec.exit_code === 0
+    return (
+      <span
+        className={`flex items-center gap-1 text-xs ${ok ? 'text-green-500' : 'text-red-400'}`}
+        title={`${new Date(exec.started_at).toLocaleString()} — exit ${exec.exit_code}, ${formatDuration(exec.duration_ms)}`}
+      >
+        {ok ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+        {ok ? '' : `exit ${exec.exit_code} · `}
+        {formatRelativeTime(exec.started_at)} · {formatDuration(exec.duration_ms)}
+      </span>
+    )
   }
 
   // Editor view
@@ -287,6 +424,19 @@ export function ScriptsPanel({
             />
           </div>
 
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={editing.destructive}
+              onChange={(e) => setEditing({ ...editing, destructive: e.target.checked })}
+              className="accent-red-600"
+            />
+            <TriangleAlert className="w-3.5 h-3.5 text-red-400" />
+            <span className="text-xs text-zinc-300">
+              Destructive — deletes data or disrupts services; executing it requires typing the script id
+            </span>
+          </label>
+
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-900/20 border border-red-800 rounded text-red-200 text-sm">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -318,11 +468,11 @@ export function ScriptsPanel({
             {!isNew && (
               <Button
                 variant="outline"
-                onClick={() => handleDeleteScript(editing.id)}
+                onClick={() => requestDelete(editing.id)}
                 className="border-red-800 text-red-400 hover:bg-red-900/30 ml-auto"
               >
                 <Trash2 className="w-4 h-4 mr-2" />
-                Delete
+                {confirmingDelete === editing.id ? 'Confirm delete?' : 'Delete'}
               </Button>
             )}
           </div>
@@ -372,13 +522,13 @@ export function ScriptsPanel({
       {/* Detail View */}
       {selected ? (
         <div className="space-y-4">
-          <Card className="border-zinc-700 bg-zinc-900/50 overflow-hidden">
+          <Card className={`${selected.destructive ? 'border-red-900/70' : 'border-zinc-700'} bg-zinc-900/50 overflow-hidden`}>
             {/* Header */}
             <div className="bg-zinc-900 border-b border-zinc-700 p-4 flex items-center gap-3">
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => { setSelected(null); setPassword(''); setOutput([]); setExitCode(null) }}
+                onClick={() => { setSelected(null); setPassword(''); setDestructiveConfirm(''); setRuns({}) }}
                 className="text-zinc-400 hover:text-zinc-200 -ml-2"
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -390,6 +540,12 @@ export function ScriptsPanel({
                 </h3>
                 <p className="text-xs text-zinc-400">{selected.description}</p>
               </div>
+              {selected.destructive && (
+                <span className="flex items-center gap-1 text-xs text-red-400 bg-red-900/30 px-2 py-1 rounded">
+                  <TriangleAlert className="w-3 h-3" />
+                  destructive
+                </span>
+              )}
               {needsSudo(selected.command) && (
                 <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-900/30 px-2 py-1 rounded">
                   <Shield className="w-3 h-3" />
@@ -420,8 +576,28 @@ export function ScriptsPanel({
               </div>
             </div>
 
+            {/* Destructive confirmation */}
+            {selected.destructive && !anyExecuting && runServers.length === 0 && (
+              <div className="p-4 border-b border-zinc-700 bg-red-900/10">
+                <div className="flex items-center gap-2 mb-2">
+                  <TriangleAlert className="w-3 h-3 text-red-400" />
+                  <p className="text-xs text-red-300 font-semibold">
+                    Destructive script — type <span className="font-mono bg-red-900/40 px-1 rounded">{selected.id}</span> to enable execution
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  value={destructiveConfirm}
+                  onChange={(e) => setDestructiveConfirm(e.target.value)}
+                  placeholder={selected.id}
+                  autoComplete="off"
+                  className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-50 font-mono placeholder:text-zinc-700 focus:outline-none focus:border-red-600"
+                />
+              </div>
+            )}
+
             {/* Sudo password input */}
-            {needsSudo(selected.command) && !executing && exitCode === null && (
+            {needsSudo(selected.command) && !anyExecuting && runServers.length === 0 && (
               <div className="p-4 border-b border-zinc-700 bg-amber-900/10">
                 <div className="flex items-center gap-2 mb-2">
                   <Lock className="w-3 h-3 text-amber-400" />
@@ -440,7 +616,7 @@ export function ScriptsPanel({
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && password) handleRunScript()
+                      if (e.key === 'Enter' && password && destructiveArmed) handleRunScript()
                     }}
                     placeholder="Enter sudo password..."
                     className="w-full bg-zinc-900 border border-zinc-700 rounded px-3 py-2 text-sm text-zinc-50 font-mono placeholder:text-zinc-600 focus:outline-none focus:border-amber-600 pr-10"
@@ -458,28 +634,48 @@ export function ScriptsPanel({
 
             {/* Execute / status bar */}
             <div className="p-4">
-              {executing ? (
+              {anyExecuting ? (
                 <div className="flex items-center gap-3 text-amber-400 text-sm">
                   <Loader className="w-4 h-4 animate-spin" />
-                  <span>Executing on {serverInfo[server]?.displayName || server}...</span>
+                  <span>
+                    {runAllMode
+                      ? `Executing on ${runServers.filter(k => runs[k].executing).length}/${runServers.length} servers...`
+                      : `Executing on ${serverInfo[server]?.displayName || server}...`}
+                  </span>
                 </div>
-              ) : exitCode !== null ? (
+              ) : runServers.length > 0 ? (
                 <div className="flex items-center justify-between">
-                  <div className={`flex items-center gap-2 text-sm ${exitCode === 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {exitCode === 0 ? (
-                      <CheckCircle2 className="w-4 h-4" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4" />
-                    )}
-                    <span>
-                      {exitCode === 0 ? 'Completed successfully' : `Failed with exit code ${exitCode}`}
-                    </span>
-                  </div>
+                  {runAllMode ? (
+                    <div className="flex items-center gap-3 text-sm">
+                      {runServers.every(k => runs[k].exitCode === 0) ? (
+                        <span className="flex items-center gap-2 text-green-400">
+                          <CheckCircle2 className="w-4 h-4" />
+                          Completed on all {runServers.length} servers
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-2 text-red-400">
+                          <AlertCircle className="w-4 h-4" />
+                          Failed on {runServers.filter(k => runs[k].exitCode !== 0).length}/{runServers.length} servers
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className={`flex items-center gap-2 text-sm ${currentRun?.exitCode === 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {currentRun?.exitCode === 0 ? (
+                        <CheckCircle2 className="w-4 h-4" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4" />
+                      )}
+                      <span>
+                        {currentRun?.exitCode === 0 ? 'Completed successfully' : `Failed with exit code ${currentRun?.exitCode}`}
+                      </span>
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => { setOutput([]); setExitCode(null) }}
+                      onClick={resetRun}
                       className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
                     >
                       Run again
@@ -487,7 +683,7 @@ export function ScriptsPanel({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => { setSelected(null); setPassword(''); setOutput([]); setExitCode(null) }}
+                      onClick={() => { setSelected(null); setPassword(''); setDestructiveConfirm(''); setRuns({}) }}
                       className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
                     >
                       <ChevronLeft className="w-3 h-3 mr-1" />
@@ -496,57 +692,109 @@ export function ScriptsPanel({
                   </div>
                 </div>
               ) : (
-                <Button
-                  onClick={handleRunScript}
-                  disabled={needsSudo(selected.command) && !password}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  Execute on {serverInfo[server]?.displayName || server}
-                </Button>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={handleRunScript}
+                      disabled={!destructiveArmed || !sudoReady}
+                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      <Play className="w-4 h-4 mr-2" />
+                      Execute on {serverInfo[server]?.displayName || server}
+                    </Button>
+                    {serverKeys.length > 1 && (
+                      <Button
+                        onClick={handleRunAll}
+                        disabled={!destructiveArmed || !sudoReady}
+                        variant="outline"
+                        className="border-zinc-600 text-zinc-200 hover:bg-zinc-800"
+                        title="Execute this script on every server, side by side"
+                      >
+                        <Layers className="w-4 h-4 mr-2" />
+                        Run on all ({serverKeys.length})
+                      </Button>
+                    )}
+                  </div>
+                  {serverKeys.length > 1 && needsSudo(selected.command) && (
+                    <p className="text-xs text-zinc-500">
+                      Run on all uses the same sudo password for every server.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           </Card>
 
-          {/* Live terminal output */}
-          {(output.length > 0 || executing || exitCode !== null) && (
-            <Card className="border-zinc-700 bg-zinc-900/50 overflow-hidden">
-              <div className="bg-zinc-900 border-b border-zinc-700 p-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Terminal className="w-4 h-4 text-green-400" />
-                  <span className="text-xs font-semibold text-zinc-300">Live Output</span>
-                  {executing && (
-                    <span className="flex items-center gap-1 text-xs text-amber-400">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                      streaming
+          {/* Live output — one pane per server in Run on all mode */}
+          {runAllMode ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+              {runServers.map((key) => {
+                const run = runs[key]
+                return (
+                  <Card key={key} className="border-zinc-700 bg-zinc-900/50 overflow-hidden">
+                    <div className="bg-zinc-900 border-b border-zinc-700 p-3 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Terminal className="w-4 h-4 text-green-400" />
+                        <span className="text-xs font-semibold text-zinc-300">
+                          {serverInfo[key]?.displayName || key}
+                        </span>
+                      </div>
+                      {run.executing ? (
+                        <Loader className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                      ) : run.exitCode === 0 ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                      ) : (
+                        <span className="flex items-center gap-1 text-xs text-red-400">
+                          <AlertCircle className="w-3.5 h-3.5" />
+                          exit {run.exitCode}
+                        </span>
+                      )}
+                    </div>
+                    <pre className="h-64 overflow-auto bg-black p-3 font-mono text-xs whitespace-pre-wrap break-words">
+                      {renderOutputChunks(run.output)}
+                      {run.executing && <span className="text-zinc-500 animate-pulse">_</span>}
+                      {!run.executing && run.output.length === 0 && (
+                        <span className="text-zinc-500">(no output)</span>
+                      )}
+                    </pre>
+                  </Card>
+                )
+              })}
+            </div>
+          ) : (
+            (currentRun) && (
+              <Card className="border-zinc-700 bg-zinc-900/50 overflow-hidden">
+                <div className="bg-zinc-900 border-b border-zinc-700 p-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="w-4 h-4 text-green-400" />
+                    <span className="text-xs font-semibold text-zinc-300">Live Output</span>
+                    {currentRun.executing && (
+                      <span className="flex items-center gap-1 text-xs text-amber-400">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                        streaming
+                      </span>
+                    )}
+                  </div>
+                  {currentRun.output.length > 0 && (
+                    <span className="text-xs text-zinc-500">
+                      {currentRun.output.map(c => c.data).join('').split('\n').length} lines
                     </span>
                   )}
                 </div>
-                {output.length > 0 && (
-                  <span className="text-xs text-zinc-500">
-                    {output.join('').split('\n').length} lines
-                  </span>
-                )}
-              </div>
-              <pre
-                ref={scrollRef}
-                className="h-80 overflow-auto bg-black p-3 font-mono text-xs whitespace-pre-wrap break-words"
-              >
-                {output.map((chunk, i) => {
-                  return (
-                    <span key={i} className="text-green-400">
-                      {chunk}
-                    </span>
-                  )
-                })}
-                {executing && (
-                  <span className="text-zinc-500 animate-pulse">_</span>
-                )}
-                {!executing && output.length === 0 && exitCode !== null && (
-                  <span className="text-zinc-500">(no output)</span>
-                )}
-              </pre>
-            </Card>
+                <pre
+                  ref={scrollRef}
+                  className="h-80 overflow-auto bg-black p-3 font-mono text-xs whitespace-pre-wrap break-words"
+                >
+                  {renderOutputChunks(currentRun.output)}
+                  {currentRun.executing && (
+                    <span className="text-zinc-500 animate-pulse">_</span>
+                  )}
+                  {!currentRun.executing && currentRun.output.length === 0 && currentRun.exitCode !== null && (
+                    <span className="text-zinc-500">(no output)</span>
+                  )}
+                </pre>
+              </Card>
+            )
           )}
         </div>
       ) : (
@@ -579,7 +827,7 @@ export function ScriptsPanel({
               {scripts.map((script) => (
                 <Card
                   key={script.id}
-                  className="border-zinc-700 bg-zinc-900/50 p-4 flex flex-col cursor-pointer hover:border-zinc-600 transition-colors"
+                  className={`${script.destructive ? 'border-red-900/60 hover:border-red-800' : 'border-zinc-700 hover:border-zinc-600'} bg-zinc-900/50 p-4 flex flex-col cursor-pointer transition-colors`}
                   onClick={() => setSelected(script)}
                 >
                   <div className="flex items-start gap-3 mb-3">
@@ -589,10 +837,14 @@ export function ScriptsPanel({
                         <h4 className="font-mono text-sm font-semibold text-zinc-50 truncate">
                           {script.name}
                         </h4>
+                        {script.destructive && (
+                          <TriangleAlert className="w-3 h-3 text-red-400 flex-shrink-0" />
+                        )}
                         {needsSudo(script.command) && (
                           <Shield className="w-3 h-3 text-amber-400 flex-shrink-0" />
                         )}
                       </div>
+                      <LastRunBadge exec={latest[script.id]} />
                     </div>
                   </div>
                   <p className="text-xs text-zinc-400 mb-3 flex-1 line-clamp-2">
@@ -628,13 +880,19 @@ export function ScriptsPanel({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="text-zinc-500 hover:text-red-400"
+                      className={confirmingDelete === script.id
+                        ? 'text-red-400 bg-red-900/30 hover:bg-red-900/50'
+                        : 'text-zinc-500 hover:text-red-400'}
                       onClick={(e) => {
                         e.stopPropagation()
-                        handleDeleteScript(script.id)
+                        requestDelete(script.id)
                       }}
                     >
-                      <Trash2 className="w-3 h-3" />
+                      {confirmingDelete === script.id ? (
+                        <span className="text-xs px-1">Confirm?</span>
+                      ) : (
+                        <Trash2 className="w-3 h-3" />
+                      )}
                     </Button>
                   </div>
                 </Card>
@@ -644,45 +902,60 @@ export function ScriptsPanel({
         </div>
       )}
 
-      {/* Execution History */}
-      {history.length > 0 && !selected && (
+      {/* Execution History (persisted) */}
+      {executions.length > 0 && !selected && (
         <Card className="border-zinc-700 bg-zinc-900/50 overflow-hidden">
           <div className="bg-zinc-900 border-b border-zinc-700 p-3 flex items-center gap-2">
             <Clock className="w-4 h-4 text-zinc-400" />
             <span className="text-xs font-semibold text-zinc-300">
-              Recent Executions
+              Execution History — {serverInfo[server]?.displayName || server}
             </span>
           </div>
-          <div className="divide-y divide-zinc-700">
-            {history.map((item, idx) => (
-              <div
-                key={`${item.id}-${idx}`}
-                className="p-3 hover:bg-zinc-800/50 transition-colors"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-sm text-zinc-200">
-                      {item.name}
+          <div className="divide-y divide-zinc-800">
+            {executions.map((exec) => {
+              const ok = exec.exit_code === 0
+              const hasOutput = (exec.output_bytes ?? 0) > 0
+              const expanded = expandedExec === exec.id
+              return (
+                <div key={exec.id}>
+                  <div
+                    className={`p-3 flex items-center gap-3 transition-colors ${hasOutput ? 'cursor-pointer hover:bg-zinc-800/50' : ''}`}
+                    onClick={() => hasOutput && toggleExecution(exec)}
+                  >
+                    {hasOutput ? (
+                      expanded
+                        ? <ChevronDown className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+                        : <ChevronRight className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+                    ) : (
+                      <span className="w-3.5 flex-shrink-0" />
+                    )}
+                    {ok ? (
+                      <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                    )}
+                    <span className="font-mono text-sm text-zinc-200 flex-1 truncate">
+                      {exec.script_id || '(unknown)'}
                     </span>
-                    {item.status === 'success' && (
-                      <CheckCircle2 className="w-4 h-4 text-green-500" />
+                    {!ok && (
+                      <span className="text-xs text-red-400 font-mono">exit {exec.exit_code}</span>
                     )}
-                    {item.status === 'error' && (
-                      <AlertCircle className="w-4 h-4 text-red-500" />
-                    )}
-                    {item.status === 'running' && (
-                      <Loader className="w-4 h-4 text-amber-500 animate-spin" />
-                    )}
+                    <span className="text-xs text-zinc-500 font-mono">{formatDuration(exec.duration_ms)}</span>
+                    <span
+                      className="text-xs text-zinc-500"
+                      title={new Date(exec.started_at).toLocaleString()}
+                    >
+                      {formatRelativeTime(exec.started_at)}
+                    </span>
                   </div>
-                  <span className="text-xs text-zinc-500">{item.timestamp}</span>
+                  {expanded && (
+                    <pre className="max-h-64 overflow-auto bg-black border-t border-zinc-800 p-3 font-mono text-xs text-zinc-300 whitespace-pre-wrap break-words">
+                      {execOutputs[exec.id] === undefined ? 'Loading output...' : execOutputs[exec.id] || '(no output)'}
+                    </pre>
+                  )}
                 </div>
-                {item.output && (
-                  <p className="text-xs text-zinc-400 font-mono truncate">
-                    {item.output}
-                  </p>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         </Card>
       )}

@@ -10,6 +10,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.4.0] — 2026-07-17
+
+#### Added
+- **Persistent script execution history**: every run (REST or streamed) now stores its output (last 50 KB) in `script_executions`; the Scripts tab shows a history that survives reloads, with expandable output, duration, and exit code per row (`GET /executions`, `/executions/:id`, `/executions/latest`)
+- **Last-run badges on script cards**: each card shows ✓/✗, how long ago, and duration of its latest execution on the selected server — the grid doubles as a status board (e.g. spot that a check hasn't run in weeks)
+- **Destructive script guard**: scripts can be flagged `destructive` (seeded for `docker-prune`, `apply-updates`, `safe-reboot`); they get a red border/badge and executing them requires typing the script id
+- **Run on all servers**: execute a script on the whole fleet at once with side-by-side live output panes and per-server exit status
+- **stderr coloring**: stderr streams render in amber in the live output, distinct from stdout
+
+#### Fixed
+- **Delete without confirmation**: removing a script now requires a two-step confirmation (arms for 4 s), both on the grid and in the editor
+- `api.getScriptHistory` was a stub returning `[]` (tech debt from #26) — now wired to the real `/executions` endpoint
+
 ### [1.3.0] — 2026-07-17
 
 #### Added
@@ -84,6 +97,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.4.0] — 2026-07-17
+
+#### Agregado
+- **Historial persistente de ejecuciones de scripts**: cada ejecución (REST o streaming) guarda su output (últimos 50 KB) en `script_executions`; la pestaña Scripts muestra un historial que sobrevive recargas, con output expandible, duración y exit code por fila (`GET /executions`, `/executions/:id`, `/executions/latest`)
+- **Badges de última ejecución en las cards**: cada card muestra ✓/✗, hace cuánto y duración de su última ejecución en el servidor seleccionado — el grid funciona como tablero de estado (p. ej. detectar que un chequeo no se corre hace semanas)
+- **Guarda de scripts destructivos**: los scripts pueden marcarse `destructive` (seed para `docker-prune`, `apply-updates`, `safe-reboot`); llevan borde/badge rojo y ejecutarlos exige tipear el id del script
+- **Run on all servers**: ejecuta un script en toda la flota a la vez con paneles de output en vivo lado a lado y exit status por servidor
+- **Color para stderr**: los streams de stderr se pintan en ámbar en el output en vivo, distintos de stdout
+
+#### Corregido
+- **Borrado sin confirmación**: eliminar un script ahora requiere confirmación en dos pasos (armada por 4 s), tanto en el grid como en el editor
+- `api.getScriptHistory` era un stub que retornaba `[]` (deuda de #26) — ahora conectado al endpoint real `/executions`
 
 ### [1.3.0] — 2026-07-17
 

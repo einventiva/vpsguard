@@ -44,10 +44,24 @@ export interface ScriptResult {
   name: string
   description: string
   command: string
+  destructive: boolean
   output: string
   status: 'idle' | 'running' | 'success' | 'error'
   timestamp: string
   server: ServerAlias
+}
+
+// Persisted execution record. Lists omit `output` (fetch per-id);
+// output_bytes signals whether there is anything to expand.
+export interface ScriptExecution {
+  id: number
+  script_id: string
+  server: string
+  exit_code: number | null
+  started_at: string
+  duration_ms: number
+  output_bytes: number | null
+  output?: string | null
 }
 
 export interface LogEntry {
@@ -285,6 +299,7 @@ export interface ScriptItem {
   name: string
   description: string
   command: string
+  destructive: number
   created_at: string
   updated_at: string
 }

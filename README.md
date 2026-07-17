@@ -16,7 +16,7 @@ Monitor your VPS fleet from a single dashboard: live CPU, memory, disk metrics, 
 
 - **Real-time Monitoring** — CPU, memory, disk, uptime, load average, and SSH latency for all servers via WebSocket with HTTP polling fallback
 - **Docker Management** — List containers with live CPU/RAM/Disk I/O stats, status badges, and log viewer
-- **Script Execution** — Create, edit, and run shell scripts remotely with live terminal output streaming
+- **Script Execution** — Create, edit, and run shell scripts remotely with live terminal output streaming, persistent execution history with stored output, last-run badges per script, fleet-wide "Run on all" with side-by-side panes, and a typed-confirmation guard for destructive scripts
 - **Crontab Manager** — View, create, toggle, and delete cron jobs with preset schedules and human-readable descriptions
 - **Log Viewer** — Browse container logs per server with auto-scroll and copy support
 - **Server Management** — Full CRUD for servers with SSH connectivity testing
@@ -277,7 +277,9 @@ You can create, edit, and delete scripts from the dashboard UI.
 | POST | `/api/scripts` | Create script |
 | PUT | `/api/scripts/:id` | Update script |
 | DELETE | `/api/scripts/:id` | Delete script |
-| GET | `/api/executions` | Script execution history |
+| GET | `/api/executions` | Script execution history (filter by `server`, `script`) |
+| GET | `/api/executions/latest` | Latest execution per script for a server |
+| GET | `/api/executions/:id` | Full execution record with stored output |
 | GET | `/api/crontab/:server` | List cron jobs |
 | POST | `/api/crontab/:server` | Add cron job |
 | PUT | `/api/crontab/:server/:index` | Edit cron job |
@@ -322,7 +324,7 @@ MIT
 
 - **Monitoreo en tiempo real** — CPU, memoria, disco, uptime, load average y latencia SSH de todos los servidores vía WebSocket con fallback HTTP polling
 - **Gestión Docker** — Lista de containers con estadísticas en vivo de CPU/RAM/Disco, badges de estado y visor de logs
-- **Ejecución de Scripts** — Crea, edita y ejecuta scripts de shell remotamente con salida en terminal en tiempo real
+- **Ejecución de Scripts** — Crea, edita y ejecuta scripts de shell remotamente con salida en terminal en tiempo real, historial persistente de ejecuciones con output almacenado, badges de última ejecución por script, "Run on all" para toda la flota con paneles lado a lado, y guarda de confirmación tipeada para scripts destructivos
 - **Gestor de Crontab** — Ver, crear, activar/desactivar y eliminar cron jobs con presets y descripciones legibles
 - **Visor de Logs** — Navega logs de containers por servidor con auto-scroll y copia
 - **Gestión de Servidores** — CRUD completo con prueba de conectividad SSH
@@ -583,7 +585,9 @@ Puedes crear, editar y eliminar scripts desde la interfaz del dashboard.
 | POST | `/api/scripts` | Crear script |
 | PUT | `/api/scripts/:id` | Actualizar script |
 | DELETE | `/api/scripts/:id` | Eliminar script |
-| GET | `/api/executions` | Historial de ejecuciones |
+| GET | `/api/executions` | Historial de ejecuciones (filtros `server`, `script`) |
+| GET | `/api/executions/latest` | Última ejecución por script para un servidor |
+| GET | `/api/executions/:id` | Registro completo con el output almacenado |
 | GET | `/api/crontab/:server` | Listar cron jobs |
 | POST | `/api/crontab/:server` | Agregar cron job |
 | PUT | `/api/crontab/:server/:index` | Editar cron job |
