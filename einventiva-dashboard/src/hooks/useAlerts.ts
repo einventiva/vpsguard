@@ -41,6 +41,8 @@ export function useAlerts(): UseAlertsReturn {
       inodes: 'Inode exhaustion',
       systemd: 'Failed systemd units',
       ssl: 'SSL certificate expiring',
+      flapping: 'Container restarts increasing',
+      'pg-replication': 'PostgreSQL replication lagging',
     }
 
     const onOpened = (alert: Alert) => {

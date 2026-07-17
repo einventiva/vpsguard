@@ -85,7 +85,7 @@ export interface MetricEntry {
 export interface Alert {
   id: number
   server: string
-  type: 'cpu' | 'memory' | 'disk' | 'offline' | 'disk-eta' | 'cron' | 'pg-connections' | 'inodes' | 'systemd' | 'ssl'
+  type: 'cpu' | 'memory' | 'disk' | 'offline' | 'disk-eta' | 'cron' | 'pg-connections' | 'pg-replication' | 'inodes' | 'systemd' | 'ssl' | 'flapping'
   severity: 'warning' | 'critical'
   message: string
   value: number | null

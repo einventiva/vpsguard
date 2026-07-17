@@ -63,11 +63,13 @@ export function TrendChart({ server, title, mini = false, onClick }: TrendChartP
         const entries = response.entries || []
         if (entries.length === 0) return
 
-        const latestTs = entries[entries.length - 1].timestamp
-        const detail = await api.getMetricDetail(server, latestTs)
+        // Detail is sampled every ~60s while history is 15s: search
+        // backwards-in-window for the nearest stored breakdown
+        const latestTs = entries[Math.max(0, entries.length - 5)].timestamp
+        const detail = await api.getMetricDetail(server, latestTs, 120)
         setProcesses(detail.processes || [])
         setContainers(detail.containers || [])
-        setBreakdownTime(latestTs)
+        setBreakdownTime(detail.timestamp || latestTs)
       } catch (err) {
         console.error(`Failed to load breakdown for ${server}:`, err)
       } finally {
