@@ -1,8 +1,8 @@
 # VPSGuard
 
-**Real-time multi-server monitoring and management dashboard.**
+**Real-time multi-server monitoring and management dashboard — built for preventive action.**
 
-Monitor your VPS fleet from a single dashboard: live CPU, memory, disk metrics, Docker containers, crontab management, script execution, and automated server provisioning — all streamed in real-time via WebSocket.
+Monitor your VPS fleet from a single dashboard: live CPU, memory, disk metrics, Docker containers, PostgreSQL, crontab management, script execution, and automated server provisioning — all streamed in real-time via WebSocket. Beyond real-time: persistent alerts with lifecycle, long-range trends, disk-full projections, and cron execution watching so problems surface *before* they hurt.
 
 ---
 
@@ -21,10 +21,15 @@ Monitor your VPS fleet from a single dashboard: live CPU, memory, disk metrics, 
 - **Log Viewer** — Browse container logs per server with auto-scroll and copy support
 - **Server Management** — Full CRUD for servers with SSH connectivity testing
 - **Setup Wizard** — Provision a virgin server from scratch: creates user, configures sudo, generates SSH keys, copies public key, updates `~/.ssh/config`, and registers it in the dashboard — all streamed step-by-step
-- **Trend Charts** — Historical charts with click-drag range analysis (min/avg/max), brush navigator for time panning, and per-process/per-container resource breakdown at peak CPU timestamps
+- **Trend Charts** — Historical charts with range selector (1h → 90d, backed by hourly rollups kept for a year), click-drag range analysis (min/avg/max), brush navigator, and per-process/per-container resource breakdown at peak CPU timestamps
 - **Container Logs** — Double-click any container in the detail view to see its logs inline with color-coded output (error/warn/info)
-- **Alert System** — Toast notifications when thresholds are exceeded (CPU >80%, Memory >85%, Disk >90%, server offline)
-- **macOS Widget** — (Experimental) Übersicht desktop widget for at-a-glance monitoring
+- **Persistent Alert System** — Alerts with full lifecycle (open → acknowledge → auto-resolve) stored in SQLite, hysteresis to kill false positives (opens after ~30s over threshold, resolves after ~1min clean), recovery notifications, an Alerts tab with unacknowledged badge, and an optional **webhook** (`ALERT_WEBHOOK_URL`) that POSTs every transition to Slack/Telegram/n8n
+- **Per-server Thresholds** — Editable from the Alerts tab with cascading resolution (server → global → defaults); changes apply hot on the next sample
+- **Predictive Monitoring** — Linear-regression projections: *"disk full in ~N days"* on each server card (with a `disk-eta` alert when under 14 days) and sustained memory-climb detection for leak hunting
+- **PostgreSQL Monitoring** — Auto-discovers Postgres containers: databases with size and connections, cache hit ratio, active queries, locks, replication — plus a 5-min sampler that powers per-container **trend charts** (connections vs `max_connections`, size growth) and a `pg-connections` saturation alert
+- **Cron Execution Watch** — Reads real CRON executions from syslog: each job shows its last run and an OVERDUE badge when it stops running (2× its expected interval), with an hourly alert — so a silently failing backup is caught before you need it
+- **Container Health** — Restart counts and OOM-kill flags per container: a crash-looping container can no longer hide behind "Up 2 minutes"
+- **macOS Widget** — (Experimental) Übersicht desktop widget for at-a-glance monitoring (reads the API token from `~/.config/vpsguard/token`)
 
 ### Tech Stack
 
@@ -47,9 +52,13 @@ vpsguard/
 │   │   │   ├── ServerDetailPanel.tsx    # Detailed server view with charts + logs
 │   │   │   ├── ServerCard.tsx           # Server metric card with CPU gauge
 │   │   │   ├── TrendChart.tsx           # Historical charts with drill-down
-│   │   │   ├── DockerPanel.tsx          # Docker container management
+│   │   │   ├── DockerPanel.tsx          # Docker container management (+ restarts/OOM)
+│   │   │   ├── PostgresPanel.tsx        # PostgreSQL monitoring
+│   │   │   ├── PgTrends.tsx             # Per-container PG trend charts
+│   │   │   ├── AlertsPanel.tsx          # Alert center (active/history + ack)
+│   │   │   ├── ThresholdsEditor.tsx     # Per-server threshold editor
 │   │   │   ├── ScriptsPanel.tsx         # Script CRUD + execution
-│   │   │   ├── CrontabPanel.tsx         # Crontab manager
+│   │   │   ├── CrontabPanel.tsx         # Crontab manager (+ last run/overdue)
 │   │   │   ├── LogViewer.tsx            # Container log viewer
 │   │   │   ├── ServersPanel.tsx         # Server CRUD
 │   │   │   ├── SetupWizardPanel.tsx     # Automated server provisioning
@@ -57,7 +66,9 @@ vpsguard/
 │   │   │   └── ui/                      # 40+ Radix UI components
 │   │   ├── hooks/
 │   │   │   ├── useServerData.ts         # Real-time metrics via shared socket
-│   │   │   ├── useAlerts.ts             # Threshold alert listener
+│   │   │   ├── useAlerts.ts             # Alert state from API + socket events
+│   │   │   ├── useThresholds.ts         # Effective thresholds per server
+│   │   │   ├── useProjections.ts        # Disk-full ETA / memory slope
 │   │   │   └── useAutoScroll.ts         # Auto-scroll for log viewers
 │   │   ├── lib/
 │   │   │   ├── config.ts               # SOCKET_URL, API_BASE, API_TOKEN
@@ -77,18 +88,29 @@ vpsguard/
 │   ├── routes/
 │   │   ├── health.js                    # Health check
 │   │   ├── status.js                    # Server metrics
-│   │   ├── docker.js                    # Containers + logs
+│   │   ├── docker.js                    # Containers + logs + restart counts
+│   │   ├── postgres.js                  # PG stats, detailed view, history
+│   │   ├── alerts.js                    # Alert list + acknowledge
+│   │   ├── thresholds.js                # Per-server threshold CRUD
+│   │   ├── projections.js               # Disk-full ETA / memory slope
 │   │   ├── scripts.js                   # Script CRUD
 │   │   ├── servers.js                   # Server CRUD + SSH test
-│   │   ├── crontab.js                   # Crontab CRUD + toggle
-│   │   └── history.js                   # Metrics history + drill-down
+│   │   ├── crontab.js                   # Crontab CRUD + execution watch
+│   │   └── history.js                   # Metrics history (ranges) + drill-down
 │   ├── services/
-│   │   ├── ssh.js                       # SSH command execution
+│   │   ├── ssh.js                       # SSH execution (ControlMaster mux)
 │   │   ├── metrics.js                   # Metrics parsing + collection
 │   │   ├── cache.js                     # In-memory response cache
-│   │   ├── alerts.js                    # Threshold alert logic
+│   │   ├── alerts.js                    # Threshold breach evaluation
+│   │   ├── alertEngine.js               # Alert lifecycle with hysteresis
+│   │   ├── thresholds.js                # Cascading threshold resolution
+│   │   ├── projections.js               # Linear-regression projections
+│   │   ├── cronWatch.js                 # Syslog CRON execution parsing
+│   │   ├── pg.js                        # Shared PG helpers
+│   │   ├── pgHistory.js                 # PostgreSQL 5-min sampler
+│   │   ├── notify.js                    # Alert webhook delivery
 │   │   ├── crontab.js                   # Crontab file parsing
-│   │   ├── backgroundJobs.js            # Periodic collection + pruning
+│   │   ├── backgroundJobs.js            # Loops: metrics, rollups, prune, PG, checks
 │   │   └── logger.js                    # Logging utility
 │   ├── websocket/
 │   │   └── handlers.js                  # Script exec streaming, wizard
@@ -130,6 +152,20 @@ Edit `.env` with your configuration:
 API_TOKEN=your-secret-token-here
 PORT=3847
 CORS_ORIGINS=http://localhost:5173,http://localhost:4173
+
+# Retention (days): raw metrics / per-process detail / hourly rollups / PG samples
+PRUNE_KEEP_DAYS=30
+DETAIL_KEEP_DAYS=3
+ROLLUP_KEEP_DAYS=365
+PG_KEEP_DAYS=90
+
+# Alerting: hysteresis samples, disk-full ETA threshold, PG connection saturation
+ALERT_SAMPLES_TO_OPEN=2
+ALERT_SAMPLES_TO_RESOLVE=4
+DISK_ETA_ALERT_DAYS=14
+PG_CONN_ALERT_PCT=80
+# Optional: POST { event, alert, sentAt } on every alert transition
+# ALERT_WEBHOOK_URL=https://example.com/webhook
 ```
 
 Start the backend:
@@ -152,6 +188,8 @@ Edit `.env`:
 
 ```env
 VITE_API_TOKEN=your-secret-token-here
+# Optional: backend URL if not http://localhost:3847
+# VITE_API_URL=https://monitor.example.com
 ```
 
 Start the dev server:
@@ -215,10 +253,19 @@ You can create, edit, and delete scripts from the dashboard UI.
 |--------|----------|-------------|
 | GET | `/api/status` | All server metrics |
 | GET | `/api/health` | Health check |
-| GET | `/api/docker/:server` | Docker containers + stats |
+| GET | `/api/docker/:server` | Docker containers + stats + restart counts |
 | GET | `/api/docker/:server/:container/logs` | Container logs |
-| GET | `/api/history/:server` | Metrics history |
-| GET | `/api/history/:server/detail?ts=TIMESTAMP` | Drill-down detail |
+| GET | `/api/postgres/:server` | PostgreSQL containers + databases |
+| GET | `/api/postgres/:server/detailed?container=NAME` | Cache hit, tables, queries, locks, replication |
+| GET | `/api/postgres/:server/history?container=NAME&range=24h\|7d\|30d` | PG time series |
+| GET | `/api/history/:server?range=1h\|6h\|24h\|7d\|30d\|90d\|1y` | Metrics history (bounded payloads) |
+| GET | `/api/history/:server/detail?ts=TIMESTAMP&window=SECONDS` | Drill-down detail (nearest sample) |
+| GET | `/api/alerts?active=1` | Alert history / active alerts |
+| POST | `/api/alerts/:id/ack` | Acknowledge an alert |
+| GET | `/api/thresholds` | Thresholds (builtin, global, per-server, effective) |
+| PUT | `/api/thresholds/global` | Set global threshold overrides |
+| PUT | `/api/thresholds/:server` | Set per-server threshold overrides |
+| GET | `/api/projections` | Disk-full ETA + memory slope per server |
 | GET | `/api/scripts` | List scripts |
 | POST | `/api/scripts` | Create script |
 | PUT | `/api/scripts/:id` | Update script |
@@ -240,7 +287,8 @@ You can create, edit, and delete scripts from the dashboard UI.
 | Event | Direction | Description |
 |-------|-----------|-------------|
 | `metrics:update` | Server → Client | Real-time server metrics |
-| `alerts` | Server → Client | Threshold alerts |
+| `alert:opened` | Server → Client | Alert opened (full row) |
+| `alert:resolved` | Server → Client | Alert auto-resolved |
 | `execute:script` | Client → Server | Run a script |
 | `script:output` | Server → Client | Live script output |
 | `wizard:setup` | Client → Server | Start server provisioning |
@@ -249,7 +297,9 @@ You can create, edit, and delete scripts from the dashboard UI.
 
 ### Configuration
 
-All configuration is done via environment variables. Servers are stored in SQLite and managed from the UI. The `.env` server variables (`SERVER_*`) are only used as initial seed when the database is empty.
+All configuration is done via environment variables (see `.env.example` for the full list). Servers are stored in SQLite and managed from the UI. The `.env` server variables (`SERVER_*`) are only used as initial seed when the database is empty. Alert thresholds are managed from the Alerts tab and stored in SQLite.
+
+**Cron execution watch** reads `/var/log/syslog`, which requires the SSH user to be in the `adm` group on each monitored server: `sudo usermod -aG adm YOUR_USER`. Without it, cron entries show without last-run info (no false alarms are raised).
 
 ### License
 
@@ -268,10 +318,15 @@ MIT
 - **Visor de Logs** — Navega logs de containers por servidor con auto-scroll y copia
 - **Gestión de Servidores** — CRUD completo con prueba de conectividad SSH
 - **Setup Wizard** — Provisiona un servidor virgen desde cero: crea usuario, configura sudo, genera claves SSH, copia la clave pública, actualiza `~/.ssh/config` y registra el servidor — todo streameado paso a paso
-- **Gráficas de Tendencia** — Gráficas históricas con análisis de rango por click-drag (min/avg/max), brush navigator para navegar en el tiempo, y desglose por proceso/container en el pico de CPU
+- **Gráficas de Tendencia** — Gráficas históricas con selector de rango (1h → 90d, respaldado por rollups horarios conservados un año), análisis de rango por click-drag (min/avg/max), brush navigator y desglose por proceso/container en el pico de CPU
 - **Logs de Containers** — Doble-click en cualquier container en la vista de detalle para ver sus logs inline con colores por nivel (error/warn/info)
-- **Sistema de Alertas** — Notificaciones toast cuando se exceden umbrales (CPU >80%, Memoria >85%, Disco >90%, servidor offline)
-- **Widget macOS** — (Experimental) Widget para Übersicht para monitoreo de un vistazo
+- **Sistema de Alertas Persistente** — Alertas con ciclo de vida completo (abre → reconoce → auto-resuelve) guardadas en SQLite, histéresis contra falsos positivos (abre tras ~30s sobre umbral, resuelve tras ~1min limpio), notificaciones de recuperación, pestaña Alerts con badge de no-reconocidas, y **webhook** opcional (`ALERT_WEBHOOK_URL`) que hace POST de cada transición a Slack/Telegram/n8n
+- **Umbrales por Servidor** — Editables desde la pestaña Alerts con resolución en cascada (servidor → global → defaults); los cambios aplican en caliente en la siguiente muestra
+- **Monitoreo Predictivo** — Proyecciones por regresión lineal: *"disco lleno en ~N días"* en cada tarjeta de servidor (con alerta `disk-eta` bajo 14 días) y detección de subida sostenida de memoria para cazar leaks
+- **Monitoreo PostgreSQL** — Descubre containers de Postgres automáticamente: bases con tamaño y conexiones, cache hit ratio, queries activas, locks, replicación — más un muestreador cada 5 min que alimenta **gráficas de tendencia** por container (conexiones vs `max_connections`, crecimiento de tamaño) y una alerta `pg-connections` por saturación
+- **Vigilancia de Ejecución de Crons** — Lee las ejecuciones reales de CRON desde syslog: cada job muestra su última corrida y un badge OVERDUE cuando deja de correr (2× su intervalo esperado), con alerta horaria — un backup que falla en silencio se detecta antes de necesitarlo
+- **Salud de Containers** — Conteo de reinicios y flag de OOM-kill por container: un container en crash-loop ya no se esconde tras "Up 2 minutes"
+- **Widget macOS** — (Experimental) Widget para Übersicht para monitoreo de un vistazo (lee el token desde `~/.config/vpsguard/token`)
 
 ### Stack Tecnológico
 
@@ -294,9 +349,13 @@ vpsguard/
 │   │   │   ├── ServerDetailPanel.tsx    # Vista detallada con gráficas + logs
 │   │   │   ├── ServerCard.tsx           # Card de métricas con gauge de CPU
 │   │   │   ├── TrendChart.tsx           # Gráficas históricas con drill-down
-│   │   │   ├── DockerPanel.tsx          # Gestión de containers Docker
+│   │   │   ├── DockerPanel.tsx          # Gestión de containers (+ restarts/OOM)
+│   │   │   ├── PostgresPanel.tsx        # Monitoreo PostgreSQL
+│   │   │   ├── PgTrends.tsx             # Gráficas de tendencia PG por container
+│   │   │   ├── AlertsPanel.tsx          # Centro de alertas (activas/historial + ack)
+│   │   │   ├── ThresholdsEditor.tsx     # Editor de umbrales por servidor
 │   │   │   ├── ScriptsPanel.tsx         # CRUD de scripts + ejecución
-│   │   │   ├── CrontabPanel.tsx         # Gestor de crontab
+│   │   │   ├── CrontabPanel.tsx         # Gestor de crontab (+ last run/overdue)
 │   │   │   ├── LogViewer.tsx            # Visor de logs de containers
 │   │   │   ├── ServersPanel.tsx         # CRUD de servidores
 │   │   │   ├── SetupWizardPanel.tsx     # Provisionamiento automático
@@ -304,7 +363,9 @@ vpsguard/
 │   │   │   └── ui/                      # 40+ componentes Radix UI
 │   │   ├── hooks/
 │   │   │   ├── useServerData.ts         # Métricas en tiempo real vía socket
-│   │   │   ├── useAlerts.ts             # Listener de alertas de umbrales
+│   │   │   ├── useAlerts.ts             # Estado de alertas desde API + socket
+│   │   │   ├── useThresholds.ts         # Umbrales efectivos por servidor
+│   │   │   ├── useProjections.ts        # ETA de disco lleno / pendiente memoria
 │   │   │   └── useAutoScroll.ts         # Auto-scroll para visores de logs
 │   │   ├── lib/
 │   │   │   ├── config.ts               # SOCKET_URL, API_BASE, API_TOKEN
@@ -324,18 +385,29 @@ vpsguard/
 │   ├── routes/
 │   │   ├── health.js                    # Health check
 │   │   ├── status.js                    # Métricas de servidores
-│   │   ├── docker.js                    # Containers + logs
+│   │   ├── docker.js                    # Containers + logs + reinicios
+│   │   ├── postgres.js                  # Stats PG, vista detallada, histórico
+│   │   ├── alerts.js                    # Listado de alertas + acknowledge
+│   │   ├── thresholds.js                # CRUD de umbrales por servidor
+│   │   ├── projections.js               # ETA de disco lleno / pendiente memoria
 │   │   ├── scripts.js                   # CRUD de scripts
 │   │   ├── servers.js                   # CRUD de servidores + test SSH
-│   │   ├── crontab.js                   # CRUD de crontab + toggle
-│   │   └── history.js                   # Historial de métricas + drill-down
+│   │   ├── crontab.js                   # CRUD de crontab + vigilancia de ejecución
+│   │   └── history.js                   # Historial de métricas (rangos) + drill-down
 │   ├── services/
-│   │   ├── ssh.js                       # Ejecución de comandos SSH
+│   │   ├── ssh.js                       # Ejecución SSH (multiplexing ControlMaster)
 │   │   ├── metrics.js                   # Parsing + recolección de métricas
 │   │   ├── cache.js                     # Caché en memoria
-│   │   ├── alerts.js                    # Lógica de alertas por umbral
+│   │   ├── alerts.js                    # Evaluación de umbrales excedidos
+│   │   ├── alertEngine.js               # Ciclo de vida de alertas con histéresis
+│   │   ├── thresholds.js                # Resolución de umbrales en cascada
+│   │   ├── projections.js               # Proyecciones por regresión lineal
+│   │   ├── cronWatch.js                 # Parsing de ejecuciones CRON en syslog
+│   │   ├── pg.js                        # Helpers PG compartidos
+│   │   ├── pgHistory.js                 # Muestreador PostgreSQL cada 5 min
+│   │   ├── notify.js                    # Entrega de webhook de alertas
 │   │   ├── crontab.js                   # Parsing de archivos crontab
-│   │   ├── backgroundJobs.js            # Recolección periódica + limpieza
+│   │   ├── backgroundJobs.js            # Loops: métricas, rollups, prune, PG, chequeos
 │   │   └── logger.js                    # Utilidad de logging
 │   ├── websocket/
 │   │   └── handlers.js                  # Streaming de scripts, wizard
@@ -377,6 +449,20 @@ Edita `.env` con tu configuración:
 API_TOKEN=tu-token-secreto-aqui
 PORT=3847
 CORS_ORIGINS=http://localhost:5173,http://localhost:4173
+
+# Retención (días): métricas crudas / detalle por proceso / rollups horarios / muestras PG
+PRUNE_KEEP_DAYS=30
+DETAIL_KEEP_DAYS=3
+ROLLUP_KEEP_DAYS=365
+PG_KEEP_DAYS=90
+
+# Alertas: muestras de histéresis, umbral de ETA de disco, saturación de conexiones PG
+ALERT_SAMPLES_TO_OPEN=2
+ALERT_SAMPLES_TO_RESOLVE=4
+DISK_ETA_ALERT_DAYS=14
+PG_CONN_ALERT_PCT=80
+# Opcional: POST { event, alert, sentAt } en cada transición de alerta
+# ALERT_WEBHOOK_URL=https://example.com/webhook
 ```
 
 Inicia el backend:
@@ -399,6 +485,8 @@ Edita `.env`:
 
 ```env
 VITE_API_TOKEN=tu-token-secreto-aqui
+# Opcional: URL del backend si no es http://localhost:3847
+# VITE_API_URL=https://monitor.example.com
 ```
 
 Inicia el servidor de desarrollo:
@@ -462,10 +550,19 @@ Puedes crear, editar y eliminar scripts desde la interfaz del dashboard.
 |--------|----------|-------------|
 | GET | `/api/status` | Métricas de todos los servidores |
 | GET | `/api/health` | Health check |
-| GET | `/api/docker/:server` | Containers Docker + stats |
+| GET | `/api/docker/:server` | Containers Docker + stats + reinicios |
 | GET | `/api/docker/:server/:container/logs` | Logs de container |
-| GET | `/api/history/:server` | Historial de métricas |
-| GET | `/api/history/:server/detail?ts=TIMESTAMP` | Detalle drill-down |
+| GET | `/api/postgres/:server` | Containers PostgreSQL + bases |
+| GET | `/api/postgres/:server/detailed?container=NAME` | Cache hit, tablas, queries, locks, replicación |
+| GET | `/api/postgres/:server/history?container=NAME&range=24h\|7d\|30d` | Serie temporal PG |
+| GET | `/api/history/:server?range=1h\|6h\|24h\|7d\|30d\|90d\|1y` | Historial de métricas (payloads acotados) |
+| GET | `/api/history/:server/detail?ts=TIMESTAMP&window=SECONDS` | Detalle drill-down (muestra más cercana) |
+| GET | `/api/alerts?active=1` | Historial de alertas / alertas activas |
+| POST | `/api/alerts/:id/ack` | Reconocer una alerta |
+| GET | `/api/thresholds` | Umbrales (builtin, global, por servidor, efectivos) |
+| PUT | `/api/thresholds/global` | Definir overrides globales de umbrales |
+| PUT | `/api/thresholds/:server` | Definir overrides por servidor |
+| GET | `/api/projections` | ETA de disco lleno + pendiente de memoria por servidor |
 | GET | `/api/scripts` | Listar scripts |
 | POST | `/api/scripts` | Crear script |
 | PUT | `/api/scripts/:id` | Actualizar script |
@@ -487,7 +584,8 @@ Puedes crear, editar y eliminar scripts desde la interfaz del dashboard.
 | Evento | Dirección | Descripción |
 |--------|-----------|-------------|
 | `metrics:update` | Server → Client | Métricas en tiempo real |
-| `alerts` | Server → Client | Alertas de umbrales |
+| `alert:opened` | Server → Client | Alerta abierta (fila completa) |
+| `alert:resolved` | Server → Client | Alerta auto-resuelta |
 | `execute:script` | Client → Server | Ejecutar un script |
 | `script:output` | Server → Client | Salida en vivo del script |
 | `wizard:setup` | Client → Server | Iniciar provisionamiento |
@@ -496,7 +594,9 @@ Puedes crear, editar y eliminar scripts desde la interfaz del dashboard.
 
 ### Configuración
 
-Toda la configuración se hace mediante variables de entorno. Los servidores se almacenan en SQLite y se gestionan desde la interfaz. Las variables de servidor en `.env` (`SERVER_*`) solo se usan como seed inicial cuando la base de datos está vacía.
+Toda la configuración se hace mediante variables de entorno (ver `.env.example` para la lista completa). Los servidores se almacenan en SQLite y se gestionan desde la interfaz. Las variables de servidor en `.env` (`SERVER_*`) solo se usan como seed inicial cuando la base de datos está vacía. Los umbrales de alerta se gestionan desde la pestaña Alerts y se guardan en SQLite.
+
+**La vigilancia de ejecución de crons** lee `/var/log/syslog`, lo que requiere que el usuario SSH esté en el grupo `adm` en cada servidor monitoreado: `sudo usermod -aG adm TU_USUARIO`. Sin esto, las entradas de cron se muestran sin última corrida (no se generan falsas alarmas).
 
 ### Licencia
 
