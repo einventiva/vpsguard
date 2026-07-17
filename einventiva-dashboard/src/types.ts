@@ -49,6 +49,8 @@ export interface ScriptResult {
   schedule: string | null
   // '*' = every server, or comma-separated server keys
   scheduleServers: string
+  // Alert types this script helps diagnose/remediate (suggestion buttons)
+  alertTypes: string[]
   output: string
   status: 'idle' | 'running' | 'success' | 'error'
   timestamp: string
@@ -307,6 +309,7 @@ export interface ScriptItem {
   destructive: number
   schedule: string | null
   schedule_servers: string
+  alert_types: string
   created_at: string
   updated_at: string
 }

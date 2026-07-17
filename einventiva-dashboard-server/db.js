@@ -10,14 +10,14 @@ let db;
 
 // ─── Default scripts (seed data) ────────────────────────────────────
 const DEFAULT_SCRIPTS = [
-  { id: 'docker-prune', name: 'Docker Prune', description: 'Remove unused Docker images and containers', command: 'docker system prune -af --volumes', destructive: 1 },
-  { id: 'clean-logs', name: 'Clean Logs', description: 'Clean up old log files and journal entries', command: "sudo find /var/log -name '*.gz' -delete && sudo journalctl --vacuum-time=7d" },
+  { id: 'docker-prune', name: 'Docker Prune', description: 'Remove unused Docker images and containers', command: 'docker system prune -af --volumes', destructive: 1, alertTypes: 'disk,disk-eta' },
+  { id: 'clean-logs', name: 'Clean Logs', description: 'Clean up old log files and journal entries', command: "sudo find /var/log -name '*.gz' -delete && sudo journalctl --vacuum-time=7d", alertTypes: 'disk,disk-eta' },
   { id: 'security-scan', name: 'Security Scan', description: 'Run Lynis security audit', command: 'sudo lynis audit system --quick 2>&1 | tail -30' },
-  { id: 'disk-usage', name: 'Disk Usage', description: 'Show disk usage summary, top directories, and Docker disk usage', command: 'echo "=== Disk Usage Summary ==="; df -h / | tail -1; echo; echo "=== Top 20 directories by size (/) ==="; sudo du -sh /* 2>/dev/null | sort -rh | head -20; echo; echo "=== Docker disk usage ==="; docker system df 2>/dev/null' },
+  { id: 'disk-usage', name: 'Disk Usage', description: 'Show disk usage summary, top directories, and Docker disk usage', command: 'echo "=== Disk Usage Summary ==="; df -h / | tail -1; echo; echo "=== Top 20 directories by size (/) ==="; sudo du -sh /* 2>/dev/null | sort -rh | head -20; echo; echo "=== Docker disk usage ==="; docker system df 2>/dev/null', alertTypes: 'disk,disk-eta,inodes' },
   { id: 'restart-nginx', name: 'Restart Nginx', description: 'Restart nginx web server', command: 'sudo systemctl restart nginx && sudo systemctl status nginx --no-pager' },
-  { id: 'certbot-renew', name: 'Certbot Renew', description: 'Test certificate renewal', command: 'sudo certbot renew --dry-run' },
+  { id: 'certbot-renew', name: 'Certbot Renew', description: 'Test certificate renewal', command: 'sudo certbot renew --dry-run', alertTypes: 'ssl' },
   { id: 'fail2ban-status', name: 'Fail2ban Status', description: 'Check fail2ban security status', command: 'sudo fail2ban-client status' },
-  { id: 'docker-stats', name: 'Docker Stats', description: 'Show Docker container statistics', command: "docker stats --no-stream --format '{{json .}}'" },
+  { id: 'docker-stats', name: 'Docker Stats', description: 'Show Docker container statistics', command: "docker stats --no-stream --format '{{json .}}'", alertTypes: 'cpu,memory,flapping' },
   { id: 'backup-db', name: 'Backup DB', description: 'Create database backup (edit command to match your setup)', command: 'echo "Configure your backup command in the dashboard"' },
   { id: 'check-updates', name: 'Check Updates', description: 'Check for available system updates', command: 'apt list --upgradable 2>/dev/null' },
   { id: 'apply-updates', name: 'Apply Updates', description: 'Apply all pending security and system updates (requires sudo)', command: 'sudo apt update && sudo apt upgrade -y && echo "---" && echo "Updates applied successfully" && if [ -f /var/run/reboot-required ]; then echo "*** REBOOT REQUIRED ***"; else echo "No reboot required"; fi', destructive: 1 },
@@ -66,6 +66,7 @@ function initDB() {
       destructive INTEGER DEFAULT 0,
       schedule TEXT,
       schedule_servers TEXT DEFAULT '*',
+      alert_types TEXT DEFAULT '',
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
@@ -185,6 +186,14 @@ function initDB() {
     db.exec("ALTER TABLE scripts ADD COLUMN schedule_servers TEXT DEFAULT '*'");
     console.log('[db] Migrated scripts: added schedule columns');
   }
+  if (!hasColumn('scripts', 'alert_types')) {
+    db.exec("ALTER TABLE scripts ADD COLUMN alert_types TEXT DEFAULT ''");
+    const tagged = DEFAULT_SCRIPTS.filter(sc => sc.alertTypes);
+    const upd = db.prepare('UPDATE scripts SET alert_types = ? WHERE id = ? AND command = ?');
+    // Backfill only untouched seed scripts (same command as shipped)
+    for (const sc of tagged) upd.run(sc.alertTypes, sc.id, sc.command);
+    console.log('[db] Migrated scripts: added alert_types column');
+  }
   if (!hasColumn('script_executions', 'triggered_by')) {
     db.exec("ALTER TABLE script_executions ADD COLUMN triggered_by TEXT DEFAULT 'manual'");
     console.log('[db] Migrated script_executions: added triggered_by column');
@@ -193,10 +202,10 @@ function initDB() {
   // Seed scripts if table is empty
   const count = db.prepare('SELECT COUNT(*) as c FROM scripts').get();
   if (count.c === 0) {
-    const insert = db.prepare('INSERT INTO scripts (id, name, description, command, destructive) VALUES (?, ?, ?, ?, ?)');
+    const insert = db.prepare('INSERT INTO scripts (id, name, description, command, destructive, alert_types) VALUES (?, ?, ?, ?, ?, ?)');
     const insertMany = db.transaction((scripts) => {
       for (const s of scripts) {
-        insert.run(s.id, s.name, s.description, s.command, s.destructive || 0);
+        insert.run(s.id, s.name, s.description, s.command, s.destructive || 0, s.alertTypes || '');
       }
     });
     insertMany(DEFAULT_SCRIPTS);
@@ -253,14 +262,14 @@ function getScript(id) {
   return db.prepare('SELECT * FROM scripts WHERE id = ?').get(id);
 }
 
-function createScript({ id, name, description, command, destructive, schedule, scheduleServers }) {
+function createScript({ id, name, description, command, destructive, schedule, scheduleServers, alertTypes }) {
   db.prepare(
-    'INSERT INTO scripts (id, name, description, command, destructive, schedule, schedule_servers) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(id, name, description || '', command, destructive ? 1 : 0, schedule || null, scheduleServers || '*');
+    'INSERT INTO scripts (id, name, description, command, destructive, schedule, schedule_servers, alert_types) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, name, description || '', command, destructive ? 1 : 0, schedule || null, scheduleServers || '*', alertTypes || '');
   return getScript(id);
 }
 
-function updateScript(id, { name, description, command, destructive, schedule, scheduleServers }) {
+function updateScript(id, { name, description, command, destructive, schedule, scheduleServers, alertTypes }) {
   const fields = [];
   const values = [];
   if (name !== undefined) { fields.push('name = ?'); values.push(name); }
@@ -269,6 +278,7 @@ function updateScript(id, { name, description, command, destructive, schedule, s
   if (destructive !== undefined) { fields.push('destructive = ?'); values.push(destructive ? 1 : 0); }
   if (schedule !== undefined) { fields.push('schedule = ?'); values.push(schedule || null); }
   if (scheduleServers !== undefined) { fields.push('schedule_servers = ?'); values.push(scheduleServers || '*'); }
+  if (alertTypes !== undefined) { fields.push('alert_types = ?'); values.push(alertTypes || ''); }
   if (fields.length === 0) return getScript(id);
 
   fields.push("updated_at = datetime('now')");
