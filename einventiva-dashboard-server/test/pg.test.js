@@ -4,26 +4,26 @@ const { deriveUserCandidates, cleanPgError } = require('../services/pg');
 
 describe('deriveUserCandidates', () => {
   test('replica containers yield the app name', () => {
-    assert.ok(deriveUserCandidates('pg-replica-hashtask').includes('hashtask'));
-    assert.ok(deriveUserCandidates('pg-replica-saas').includes('saas'));
-    assert.ok(deriveUserCandidates('pg-replica-einventickets').includes('einventickets'));
+    assert.ok(deriveUserCandidates('pg-replica-shopdb').includes('shopdb'));
+    assert.ok(deriveUserCandidates('pg-replica-crm').includes('crm'));
+    assert.ok(deriveUserCandidates('pg-replica-ticketing').includes('ticketing'));
   });
 
   test('includes common _admin/_user suffix variants', () => {
-    const candidates = deriveUserCandidates('pg-replica-hashtask');
-    assert.ok(candidates.includes('hashtask_admin'));
-    assert.ok(candidates.includes('hashtask_user'));
+    const candidates = deriveUserCandidates('pg-replica-shopdb');
+    assert.ok(candidates.includes('shopdb_admin'));
+    assert.ok(candidates.includes('shopdb_user'));
   });
 
   test('primary naming convention yields the app name', () => {
-    assert.ok(deriveUserCandidates('hashtask-postgres').includes('hashtask'));
-    assert.ok(deriveUserCandidates('saas-postgres').includes('saas'));
-    assert.ok(deriveUserCandidates('litellm-db').includes('litellm'));
+    assert.ok(deriveUserCandidates('shopdb-postgres').includes('shopdb'));
+    assert.ok(deriveUserCandidates('crm-postgres').includes('crm'));
+    assert.ok(deriveUserCandidates('llmproxy-db').includes('llmproxy'));
   });
 
   test('swarm task names are stripped of their suffix', () => {
-    const candidates = deriveUserCandidates('hashtask-infra_postgres.1.pm5i97c94lwftsqkhs2magug7');
-    assert.ok(candidates.includes('hashtask'));
+    const candidates = deriveUserCandidates('shopdb-infra_postgres.1.pm5i97c94lwftsqkhs2magug7');
+    assert.ok(candidates.includes('shopdb'));
     assert.ok(candidates.every(c => !c.includes('.')));
   });
 
@@ -44,7 +44,7 @@ describe('deriveUserCandidates', () => {
 
 describe('cleanPgError', () => {
   test('extracts the psql error line from a full SSH failure', () => {
-    const raw = 'Command failed: ssh -o ControlMaster=auto -o ControlPath=/tmp/dshmux/x dashboard_infra "echo U0VMRUNU...base64... | base64 -d | docker exec -i pg-replica-hashtask psql -U postgres -d postgres -t -A"\npsql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL: role "postgres" does not exist';
+    const raw = 'Command failed: ssh -o ControlMaster=auto -o ControlPath=/tmp/dshmux/x server_alias "echo U0VMRUNU...base64... | base64 -d | docker exec -i pg-replica-shopdb psql -U postgres -d postgres -t -A"\npsql: error: connection to server on socket "/var/run/postgresql/.s.PGSQL.5432" failed: FATAL: role "postgres" does not exist';
     const clean = cleanPgError(raw);
     assert.ok(clean.startsWith('psql: error:'));
     assert.ok(clean.includes('role "postgres" does not exist'));

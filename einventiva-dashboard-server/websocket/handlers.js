@@ -74,6 +74,11 @@ function registerHandlers(io, getServers) {
       });
 
       child.on('close', (code) => {
+        if (child.killed) {
+          const notice = `\n[dashboard] Timed out after ${Math.round(SCRIPT_TIMEOUT / 1000)}s — the remote command may still be running on the server. Raise SCRIPT_TIMEOUT_MS if this script legitimately takes longer.\n`;
+          appendOutput(notice);
+          socket.emit('script:output', { stream: 'stderr', data: notice, script, server: serverKey });
+        }
         socket.emit('script:done', { code, script, server: serverKey });
         log('Script execution finished', { server: serverKey, script, exitCode: code });
         db.logExecution({

@@ -10,7 +10,9 @@ if (!API_TOKEN) {
 }
 
 const COMMAND_TIMEOUT = 30000;
-const SCRIPT_TIMEOUT = 60000;
+// Scripts (updates, prunes, audits) routinely run for minutes; when the
+// timeout hits, the local ssh is killed but the remote command keeps going
+const SCRIPT_TIMEOUT = parseInt(process.env.SCRIPT_TIMEOUT_MS, 10) || 600000;
 
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:5174,http://localhost:4173').split(',').map(s => s.trim());
 

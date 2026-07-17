@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.4.1] — 2026-07-17
+
+#### Fixed
+- **Scripts timing out at 60 s with exit 255**: `SCRIPT_TIMEOUT` was hardcoded to 60 s, killing any longer run (system updates, security audits, prunes) while the remote command silently kept running. Default raised to 10 min and made configurable via `SCRIPT_TIMEOUT_MS`; when a timeout does hit, the output now ends with an explicit notice instead of a bare exit 255
+- Docs and test fixtures now use generic example names throughout
+
 ### [1.4.0] — 2026-07-17
 
 #### Added
@@ -38,7 +44,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### [1.2.1] — 2026-07-16
 
 #### Fixed
-- **PostgreSQL replicas without `POSTGRES_USER`** failed with `FATAL: role "postgres" does not exist`: containers created from basebackups keep the primary's superuser (e.g. `hashtask_admin`), so the role is now resolved by probing candidates in a single SSH call — `PG_USER_OVERRIDES` mapping → `POSTGRES_USER` → `postgres` → container-name-derived bases with `_admin`/`_user` suffix variants — and cached per container for 1 hour
+- **PostgreSQL replicas without `POSTGRES_USER`** failed with `FATAL: role "postgres" does not exist`: containers created from basebackups keep the primary's superuser (e.g. `app_admin`), so the role is now resolved by probing candidates in a single SSH call — `PG_USER_OVERRIDES` mapping → `POSTGRES_USER` → `postgres` → container-name-derived bases with `_admin`/`_user` suffix variants — and cached per container for 1 hour
 - PostgreSQL panel errors now show only the meaningful `psql:`/`FATAL` line instead of the full SSH command dump
 - The PostgreSQL sampler guards `pg_current_wal_lsn()` with `pg_is_in_recovery()`, so a streaming standby can no longer break the whole sample
 
@@ -98,6 +104,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Español
 
+### [1.4.1] — 2026-07-17
+
+#### Corregido
+- **Scripts cortados a los 60 s con exit 255**: `SCRIPT_TIMEOUT` estaba hardcodeado en 60 s y mataba cualquier ejecución más larga (updates del sistema, auditorías de seguridad, prunes) mientras el comando remoto seguía corriendo en silencio. Default subido a 10 min y configurable vía `SCRIPT_TIMEOUT_MS`; cuando el timeout sí ocurre, el output termina con un aviso explícito en vez de un exit 255 pelado
+- La documentación y los fixtures de tests ahora usan nombres de ejemplo genéricos
+
 ### [1.4.0] — 2026-07-17
 
 #### Agregado
@@ -126,7 +138,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### [1.2.1] — 2026-07-16
 
 #### Corregido
-- **Réplicas de PostgreSQL sin `POSTGRES_USER`** fallaban con `FATAL: role "postgres" does not exist`: los contenedores creados desde basebackups conservan el superusuario del primario (p.ej. `hashtask_admin`), así que el rol ahora se resuelve probando candidatos en una sola llamada SSH — mapeo `PG_USER_OVERRIDES` → `POSTGRES_USER` → `postgres` → derivados del nombre del contenedor con variantes `_admin`/`_user` — y se cachea por contenedor durante 1 hora
+- **Réplicas de PostgreSQL sin `POSTGRES_USER`** fallaban con `FATAL: role "postgres" does not exist`: los contenedores creados desde basebackups conservan el superusuario del primario (p.ej. `app_admin`), así que el rol ahora se resuelve probando candidatos en una sola llamada SSH — mapeo `PG_USER_OVERRIDES` → `POSTGRES_USER` → `postgres` → derivados del nombre del contenedor con variantes `_admin`/`_user` — y se cachea por contenedor durante 1 hora
 - Los errores del panel PostgreSQL ahora muestran solo la línea relevante `psql:`/`FATAL` en vez del volcado completo del comando SSH
 - El muestreador de PostgreSQL protege `pg_current_wal_lsn()` con `pg_is_in_recovery()`, de modo que un standby en streaming ya no rompe la muestra completa
 
