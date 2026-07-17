@@ -22,14 +22,14 @@ function createRouter(getServers) {
   // Create script
   router.post('/scripts', (req, res) => {
     try {
-      const { id, name, description, command } = req.body;
+      const { id, name, description, command, destructive } = req.body;
       if (!id || !name || !command) {
         return res.status(400).json({ error: 'id, name, and command are required' });
       }
       if (db.getScript(id)) {
         return res.status(409).json({ error: `Script '${id}' already exists` });
       }
-      const script = db.createScript({ id, name, description, command });
+      const script = db.createScript({ id, name, description, command, destructive });
       log('Script created', { id });
       res.status(201).json(script);
     } catch (error) {
@@ -44,8 +44,8 @@ function createRouter(getServers) {
       if (!db.getScript(id)) {
         return res.status(404).json({ error: `Script '${id}' not found` });
       }
-      const { name, description, command } = req.body;
-      const script = db.updateScript(id, { name, description, command });
+      const { name, description, command, destructive } = req.body;
+      const script = db.updateScript(id, { name, description, command, destructive });
       log('Script updated', { id });
       res.json(script);
     } catch (error) {
@@ -108,6 +108,7 @@ function createRouter(getServers) {
           exitCode: 0,
           startedAt: new Date(startTime).toISOString(),
           durationMs: Date.now() - startTime,
+          output,
         });
 
         res.json({
@@ -119,13 +120,15 @@ function createRouter(getServers) {
           outputLength: output.length
         });
       } catch (execError) {
-        // exec() puts the remote exit code on error.code; fall back to 1
+        // exec() puts the remote exit code on error.code and any partial
+        // stdout/stderr on the error object itself
         db.logExecution({
           scriptId: script,
           server: serverKey,
           exitCode: typeof execError.code === 'number' ? execError.code : 1,
           startedAt: new Date(startTime).toISOString(),
           durationMs: Date.now() - startTime,
+          output: [execError.stdout, execError.stderr].filter(Boolean).join('') || execError.message,
         });
         throw execError;
       }
