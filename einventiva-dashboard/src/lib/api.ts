@@ -263,8 +263,22 @@ export const api = {
     return fetchApi<AiConfig>('/ai/config')
   },
 
-  async runAiAnalysis(): Promise<AiAnalysis> {
-    return fetchApi<AiAnalysis>('/ai/analyze', { method: 'POST' })
+  async getAiModels(): Promise<string[]> {
+    const response = await fetchApi<any>('/ai/models')
+    return response.models || []
+  },
+
+  // Persist the model choice (null clears back to the env default)
+  async setAiModel(model: string | null): Promise<AiConfig> {
+    return fetchApi<AiConfig>('/ai/model', { method: 'PUT', body: JSON.stringify({ model }) })
+  },
+
+  // Optional `model` runs this analysis with a one-off model
+  async runAiAnalysis(model?: string): Promise<AiAnalysis> {
+    return fetchApi<AiAnalysis>('/ai/analyze', {
+      method: 'POST',
+      body: JSON.stringify(model ? { model } : {}),
+    })
   },
 
   async getAiAnalyses(limit: number = 20): Promise<AiAnalysis[]> {

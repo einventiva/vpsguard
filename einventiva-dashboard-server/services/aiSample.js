@@ -111,7 +111,38 @@ function buildSample(getServers) {
     postgres: pg,
     scheduledScripts: { configured: scheduled, lastRuns: lastScheduledRuns },
     failedExecutionsLast48h: failedExecutions,
+    maintenanceWindows: detectMaintenanceWindows(status, now),
   };
 }
 
-module.exports = { buildSample, formatServerStatus, compressRollup };
+// Planned maintenance the model should NOT report as incidents: recent
+// safe-reboot runs, and servers whose uptime shows a reboot in the last
+// ~2h. This is what turns "prod had a critical outage!" into "prod was
+// rebooted for planned maintenance".
+function detectMaintenanceWindows(status, now) {
+  const windows = [];
+
+  // safe-reboot / reboot-ish scripts executed in the last 3h
+  try {
+    const reboots = db.getExecutions(null, 40).filter(e =>
+      /reboot|restart/i.test(e.script_id || '') &&
+      new Date(e.started_at).getTime() > now - 3 * 3600e3
+    );
+    for (const e of reboots) {
+      windows.push({ server: e.server, kind: 'script', script: e.script_id, at: e.started_at });
+    }
+  } catch (_) { /* DB not available (e.g. unit test) — uptime signal still works */ }
+
+  // Servers that booted recently (uptime "up N min" or a small hour count)
+  for (const [key, s] of Object.entries(status || {})) {
+    const raw = s?.metrics?.uptime?.raw || '';
+    const m = raw.match(/up\s+(\d+)\s+min/) || raw.match(/up\s+(\d+):(\d{2})/);
+    if (m) {
+      const minutes = m[2] !== undefined ? parseInt(m[1]) * 60 + parseInt(m[2]) : parseInt(m[1]);
+      if (minutes <= 120) windows.push({ server: key, kind: 'recent-boot', uptimeMinutes: minutes });
+    }
+  }
+  return windows;
+}
+
+module.exports = { buildSample, formatServerStatus, compressRollup, detectMaintenanceWindows };

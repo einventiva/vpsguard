@@ -162,10 +162,17 @@ function initDB() {
       sample TEXT,
       findings TEXT,
       summary TEXT,
+      action_plan TEXT,
       tokens_in INTEGER,
       tokens_out INTEGER,
       duration_ms INTEGER,
       error TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at TEXT DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS metrics_rollup (
@@ -211,6 +218,10 @@ function initDB() {
   if (!hasColumn('script_executions', 'triggered_by')) {
     db.exec("ALTER TABLE script_executions ADD COLUMN triggered_by TEXT DEFAULT 'manual'");
     console.log('[db] Migrated script_executions: added triggered_by column');
+  }
+  if (!hasColumn('ai_analyses', 'action_plan')) {
+    db.exec('ALTER TABLE ai_analyses ADD COLUMN action_plan TEXT');
+    console.log('[db] Migrated ai_analyses: added action_plan column');
   }
 
   // Seed scripts if table is empty
@@ -516,21 +527,46 @@ function getLatestPgAggregates(sinceIso) {
   `).all(sinceIso);
 }
 
+// ─── Settings (key/value) ────────────────────────────────────────────
+function getSetting(key) {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return row ? row.value : null;
+}
+
+function setSetting(key, value) {
+  if (value === null || value === undefined || value === '') {
+    db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+    return;
+  }
+  db.prepare(`
+    INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+  `).run(key, value);
+}
+
 // ─── AI Analyses ─────────────────────────────────────────────────────
-function insertAiAnalysis({ timestamp, provider, model, sample, findings, summary, tokensIn, tokensOut, durationMs, error }) {
+function insertAiAnalysis({ timestamp, provider, model, sample, findings, summary, actionPlan, tokensIn, tokensOut, durationMs, error }) {
   const info = db.prepare(`
-    INSERT INTO ai_analyses (timestamp, provider, model, sample, findings, summary, tokens_in, tokens_out, duration_ms, error)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(timestamp, provider, model, sample, findings, summary, tokensIn ?? null, tokensOut ?? null, durationMs ?? null, error ?? null);
+    INSERT INTO ai_analyses (timestamp, provider, model, sample, findings, summary, action_plan, tokens_in, tokens_out, duration_ms, error)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(timestamp, provider, model, sample, findings, summary, actionPlan ?? null, tokensIn ?? null, tokensOut ?? null, durationMs ?? null, error ?? null);
   return getAiAnalysis(info.lastInsertRowid);
 }
 
 // List omits the (large) sample; fetch it per-row with getAiAnalysis
 function getAiAnalyses(limit = 20) {
   return db.prepare(`
-    SELECT id, timestamp, provider, model, findings, summary, tokens_in, tokens_out, duration_ms, error
+    SELECT id, timestamp, provider, model, findings, summary, action_plan, tokens_in, tokens_out, duration_ms, error
     FROM ai_analyses ORDER BY id DESC LIMIT ?
   `).all(limit);
+}
+
+// Most recent successful analysis (for evolution memory)
+function getLastSuccessfulAnalysis() {
+  return db.prepare(`
+    SELECT id, timestamp, model, findings, summary FROM ai_analyses
+    WHERE error IS NULL ORDER BY id DESC LIMIT 1
+  `).get();
 }
 
 function getAiAnalysis(id) {
@@ -720,7 +756,11 @@ module.exports = {
   insertAiAnalysis,
   getAiAnalyses,
   getAiAnalysis,
+  getLastSuccessfulAnalysis,
   pruneAiAnalyses,
+  // Settings
+  getSetting,
+  setSetting,
   // Alerts
   openAlert,
   getAlert,
