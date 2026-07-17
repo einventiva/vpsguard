@@ -84,4 +84,26 @@ async function callLLM({ provider, baseUrl, apiKey, model, maxTokens, timeoutMs,
   }
 }
 
-module.exports = { callLLM, buildOpenAIRequest, buildAnthropicRequest, extractOpenAIResponse, extractAnthropicResponse };
+// List model ids from an OpenAI-compatible /v1/models endpoint. With a
+// LiteLLM virtual key this returns only the groups the key is allowed
+// to use. Anthropic has no discovery endpoint — the caller supplies a
+// static list — so this is OpenAI-dialect only.
+async function listModels({ baseUrl, apiKey, timeoutMs }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs || 15000);
+  try {
+    const res = await fetch(`${baseUrl}/models`, {
+      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+      signal: controller.signal,
+    });
+    const raw = await res.text();
+    if (!res.ok) throw new Error(`models HTTP ${res.status}: ${raw.slice(0, 200)}`);
+    const json = JSON.parse(raw);
+    const ids = (json?.data || []).map(m => m.id).filter(Boolean);
+    return [...new Set(ids)].sort();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { callLLM, listModels, buildOpenAIRequest, buildAnthropicRequest, extractOpenAIResponse, extractAnthropicResponse };

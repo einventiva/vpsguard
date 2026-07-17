@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.9.0] — 2026-07-17
+
+#### Added
+- **AI module A3 — proactive prevention**: the analysis now returns a consolidated **action plan** (steps grouped by horizon — 🔥 now / 📅 this week / 👁 watch — with dependencies between steps and a script button per step, reusing the alert→script bridge), reports **evolution** vs the previous analysis (each finding tagged worse/improved/new/persisting, fed the prior summary + finding titles as memory), and understands **maintenance context** (recent safe-reboot runs and freshly-booted servers are treated as planned maintenance, not incidents). A **model selector** in the Prevención tab lists the models the provider/virtual-key allows (`GET /ai/models`) and persists the choice server-side (`settings` table) — no `.env` edit needed; the env value stays as the default fallback
+
 ### [1.8.0] — 2026-07-17
 
 #### Added
@@ -134,6 +139,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.9.0] — 2026-07-17
+
+#### Agregado
+- **Módulo IA A3 — prevención proactiva**: el análisis ahora devuelve un **plan de acción** consolidado (pasos agrupados por horizonte — 🔥 ahora / 📅 esta semana / 👁 monitorear — con dependencias entre pasos y un botón de script por paso, reusando el puente alertas→scripts), reporta **evolución** vs el análisis anterior (cada hallazgo etiquetado empeoró/mejoró/nuevo/persiste, alimentado con el resumen + títulos previos como memoria), y entiende **contexto de mantenimiento** (los reboots recientes de safe-reboot y servidores recién arrancados se tratan como mantenimiento planeado, no incidentes). Un **selector de modelo** en la pestaña Prevención lista los modelos que el proveedor/virtual-key permite (`GET /ai/models`) y persiste la elección en el backend (tabla `settings`) — sin editar el `.env`; el valor del env queda como default
 
 ### [1.8.0] — 2026-07-17
 
