@@ -13,8 +13,26 @@ const {
   AI_ANALYSIS_SCHEDULE, AI_OPEN_ALERTS,
 } = require('../config');
 const { isValidCron } = require('./scheduler');
+const { maskSudoPassword } = require('./ssh');
 
 const MODEL_SETTING_KEY = 'ai_model_override';
+
+// Cap on script output sent for interpretation (tokens + safety)
+const MAX_INTERPRET_OUTPUT = 24 * 1024;
+
+const INTERPRET_SYSTEM_PROMPT = `You are a preventive SRE assistant. The operator ran a diagnostic script on one of their Linux/Docker servers — often because a previous AI analysis recommended it — and needs its raw output turned into an actionable conclusion.
+
+Read the output and explain what it means: what stands out, whether anything needs attention, and what to do. If everything looks healthy, say so plainly — do not invent problems. Be concrete and brief; the operator wants a verdict, not a restatement of the raw data.
+
+Respond with ONLY a JSON object, no markdown fences, in this exact shape:
+{
+  "summary": "1-2 sentence verdict in Spanish",
+  "severity": "ok" | "info" | "warning" | "critical",
+  "points": ["key observation in Spanish", "..."],
+  "action": "concrete recommended action in Spanish, or 'Ninguna — todo en orden.' if healthy"
+}
+
+Keep points to the few that matter (max ~6). Never invent data not present in the output.`;
 
 const SYSTEM_PROMPT = `You are a preventive SRE analyst for a small fleet of Linux servers running Docker workloads, monitored by a dashboard that collects the JSON snapshot you receive.
 
@@ -184,6 +202,51 @@ function previousAnalysisDigest() {
   };
 }
 
+const VALID_INTERPRET_SEV = new Set(['ok', 'info', 'warning', 'critical']);
+
+function parseInterpretation(text) {
+  let raw = String(text || '').trim();
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenced) raw = fenced[1].trim();
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start === -1 || end <= start) throw new Error('No JSON object in model response');
+  const obj = JSON.parse(raw.slice(start, end + 1));
+  return {
+    summary: typeof obj.summary === 'string' ? obj.summary.slice(0, 800) : '',
+    severity: VALID_INTERPRET_SEV.has(obj.severity) ? obj.severity : 'info',
+    points: (Array.isArray(obj.points) ? obj.points : [])
+      .filter(p => typeof p === 'string' && p.trim())
+      .map(p => p.slice(0, 400)).slice(0, 8),
+    action: typeof obj.action === 'string' ? obj.action.slice(0, 500) : '',
+  };
+}
+
+// Interpret a script's raw output into an actionable verdict. Output is
+// masked (no sudo passwords) and truncated before it leaves the box.
+async function interpretOutput({ script, server, output, context }, { model: modelOverride } = {}) {
+  if (!isConfigured()) throw new Error('AI module not configured (set AI_PROVIDER, AI_MODEL and AI_BASE_URL or AI_API_KEY)');
+  const model = resolveModel(modelOverride);
+  let text = maskSudoPassword(String(output || ''));
+  if (text.length > MAX_INTERPRET_OUTPUT) {
+    text = `…[truncated, showing last ${MAX_INTERPRET_OUTPUT} chars]…\n` + text.slice(-MAX_INTERPRET_OUTPUT);
+  }
+  const user = JSON.stringify({
+    script: script || 'unknown',
+    server: server || 'unknown',
+    context: context ? String(context).slice(0, 500) : undefined,
+    output: text,
+  });
+  const { text: reply, tokensIn, tokensOut } = await callLLM({
+    provider: AI_PROVIDER, baseUrl: AI_BASE_URL, apiKey: AI_API_KEY,
+    model, maxTokens: AI_MAX_TOKENS, timeoutMs: AI_TIMEOUT_MS,
+    system: INTERPRET_SYSTEM_PROMPT, user,
+  });
+  const parsed = parseInterpretation(reply);
+  log('AI interpretation done', { script, server, model, severity: parsed.severity, tokensIn, tokensOut });
+  return { ...parsed, model, tokensIn, tokensOut };
+}
+
 let running = false;
 
 async function runAnalysis(getServers, { model: modelOverride } = {}) {
@@ -238,5 +301,6 @@ async function runAnalysis(getServers, { model: modelOverride } = {}) {
 module.exports = {
   runAnalysis, parseAnalysis, parseFindings, isConfigured, publicConfig, toClientShape,
   groupFindingsForAlerts, resolveModel, previousAnalysisDigest,
+  interpretOutput, parseInterpretation,
   MODEL_SETTING_KEY, SYSTEM_PROMPT,
 };

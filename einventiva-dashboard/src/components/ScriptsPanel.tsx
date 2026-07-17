@@ -35,9 +35,12 @@ import {
   TriangleAlert,
   Layers,
   CalendarClock,
+  Sparkles,
+  Info,
   X,
   Save,
 } from 'lucide-react'
+import type { AiInterpretation } from '@/types'
 
 interface ScriptsPanelProps {
   servers: Record<string, ServerInfo>
@@ -45,6 +48,87 @@ interface ScriptsPanelProps {
   // Alert → script bridge: preselect a script + server on mount
   initialTarget?: { script: string; server: string } | null
   onTargetConsumed?: () => void
+}
+
+const INTERPRET_SEV: Record<AiInterpretation['severity'], { color: string; badge: string }> = {
+  ok: { color: 'text-green-400', badge: 'bg-green-900/30 text-green-400 border-green-800/50' },
+  info: { color: 'text-blue-400', badge: 'bg-blue-900/30 text-blue-300 border-blue-800/60' },
+  warning: { color: 'text-amber-400', badge: 'bg-amber-900/30 text-amber-300 border-amber-800/60' },
+  critical: { color: 'text-red-400', badge: 'bg-red-900/40 text-red-300 border-red-800' },
+}
+
+// "Interpret with AI" affordance + result card, reused by live output
+// and stored history. Sends output (by execution id when available) to
+// the AI module and renders the verdict inline.
+function InterpretBlock({ payload, aiConfigured }: {
+  payload: { executionId?: number; script?: string; server?: string; output?: string }
+  aiConfigured: boolean
+}) {
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<AiInterpretation | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  if (!aiConfigured) return null
+
+  const run = async () => {
+    setLoading(true); setError(null)
+    try {
+      setResult(await api.interpretOutput(payload))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Interpretación falló')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="border-t border-zinc-800 bg-zinc-900/40 p-3">
+      {!result && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={run}
+          disabled={loading}
+          className="border-purple-800/60 text-purple-300 hover:bg-purple-900/20 text-xs"
+        >
+          {loading
+            ? <><Loader className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Interpretando...</>
+            : <><Sparkles className="w-3.5 h-3.5 mr-1.5" /> Interpretar con IA</>}
+        </Button>
+      )}
+      {error && (
+        <p className="text-xs text-red-400 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" /> {error}</p>
+      )}
+      {result && (() => {
+        const sev = INTERPRET_SEV[result.severity]
+        return (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Sparkles className={`w-4 h-4 ${sev.color}`} />
+              <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">Interpretación IA</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${sev.badge}`}>{result.severity}</span>
+            </div>
+            <p className="text-sm text-zinc-200">{result.summary}</p>
+            {result.points.length > 0 && (
+              <ul className="space-y-0.5">
+                {result.points.map((p, i) => (
+                  <li key={i} className="text-xs text-zinc-400 flex gap-1.5">
+                    <span className="text-zinc-600 flex-shrink-0">•</span>{p}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {result.action && (
+              <p className="text-xs text-zinc-300 flex items-start gap-1.5">
+                <Info className="w-3 h-3 mt-0.5 flex-shrink-0 text-zinc-500" />
+                <span><span className="text-zinc-500 uppercase tracking-wider text-[10px] font-semibold mr-1">Acción</span>{result.action}</span>
+              </p>
+            )}
+          </div>
+        )
+      })()}
+    </div>
+  )
 }
 
 // Alert types a script can be tagged with (suggestion buttons on alert rows)
@@ -97,6 +181,7 @@ export function ScriptsPanel({
   const [latest, setLatest] = useState<Record<string, ScriptExecution>>({})
   const [expandedExec, setExpandedExec] = useState<number | null>(null)
   const [execOutputs, setExecOutputs] = useState<Record<number, string>>({})
+  const [aiConfigured, setAiConfigured] = useState(false)
 
   // Detail/confirmation state
   const [selected, setSelected] = useState<ScriptResult | null>(null)
@@ -206,6 +291,11 @@ export function ScriptsPanel({
       setServer(serverKeys[0])
     }
   }, [serverKeys])
+
+  // Gate the "Interpret with AI" button on the module being configured
+  useEffect(() => {
+    api.getAiConfig().then(c => setAiConfigured(c.configured)).catch(() => setAiConfigured(false))
+  }, [])
 
   const fetchScripts = async () => {
     try {
@@ -957,6 +1047,16 @@ export function ScriptsPanel({
                     <span className="text-zinc-500">(no output)</span>
                   )}
                 </pre>
+                {!currentRun.executing && currentRun.output.length > 0 && (
+                  <InterpretBlock
+                    aiConfigured={aiConfigured}
+                    payload={{
+                      script: selected?.id,
+                      server,
+                      output: currentRun.output.map(c => c.data).join(''),
+                    }}
+                  />
+                )}
               </Card>
             )
           )}
@@ -1126,13 +1226,21 @@ export function ScriptsPanel({
                     </span>
                   </div>
                   {expanded && (
-                    <pre className="max-h-64 overflow-auto bg-black border-t border-zinc-800 p-3 font-mono text-xs text-zinc-300 whitespace-pre-wrap break-words">
-                      {execOutputs[exec.id] === undefined
-                        ? 'Loading output...'
-                        : execOutputs[exec.id]
-                          ? renderStoredOutput(execOutputs[exec.id])
-                          : '(no output)'}
-                    </pre>
+                    <>
+                      <pre className="max-h-64 overflow-auto bg-black border-t border-zinc-800 p-3 font-mono text-xs text-zinc-300 whitespace-pre-wrap break-words">
+                        {execOutputs[exec.id] === undefined
+                          ? 'Loading output...'
+                          : execOutputs[exec.id]
+                            ? renderStoredOutput(execOutputs[exec.id])
+                            : '(no output)'}
+                      </pre>
+                      {hasOutput && execOutputs[exec.id] && (
+                        <InterpretBlock
+                          aiConfigured={aiConfigured}
+                          payload={{ executionId: exec.id, script: exec.script_id, server: exec.server }}
+                        />
+                      )}
+                    </>
                   )}
                 </div>
               )

@@ -12,6 +12,7 @@ import type {
   ScriptExecution,
   AiAnalysis,
   AiConfig,
+  AiInterpretation,
   ServerData,
   ServerAlias,
   ApiResponse,
@@ -271,6 +272,12 @@ export const api = {
   // Persist the model choice (null clears back to the env default)
   async setAiModel(model: string | null): Promise<AiConfig> {
     return fetchApi<AiConfig>('/ai/model', { method: 'PUT', body: JSON.stringify({ model }) })
+  },
+
+  // Interpret a script output into an actionable verdict (by execution
+  // id, or inline output)
+  async interpretOutput(payload: { executionId?: number; script?: string; server?: string; output?: string; context?: string }): Promise<AiInterpretation> {
+    return fetchApi<AiInterpretation>('/ai/interpret', { method: 'POST', body: JSON.stringify(payload) })
   },
 
   // Optional `model` runs this analysis with a one-off model
