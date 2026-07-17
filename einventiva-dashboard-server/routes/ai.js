@@ -1,13 +1,44 @@
 const express = require('express');
 const db = require('../db');
 const { handleError } = require('../services/logger');
-const { runAnalysis, publicConfig, toClientShape } = require('../services/aiAnalysis');
+const { runAnalysis, publicConfig, toClientShape, MODEL_SETTING_KEY } = require('../services/aiAnalysis');
 const { afterAiAnalysis } = require('../services/backgroundJobs');
+const { listModels } = require('../services/aiProviders');
+const { AI_PROVIDER, AI_BASE_URL, AI_API_KEY, AI_TIMEOUT_MS } = require('../config');
+
+// Anthropic has no discovery endpoint; offer a small static list
+const ANTHROPIC_MODELS = ['claude-sonnet-5', 'claude-opus-4-8', 'claude-haiku-4-5-20251001'];
 
 function createRouter(getServers, io) {
   const router = express.Router();
 
   router.get('/ai/config', (req, res) => {
+    res.json(publicConfig());
+  });
+
+  // Available models to choose from (LiteLLM virtual key returns only
+  // its allowed groups). Cached briefly so the selector is snappy.
+  let modelsCache = { at: 0, models: [] };
+  router.get('/ai/models', async (req, res) => {
+    try {
+      if (AI_PROVIDER === 'anthropic') return res.json({ models: ANTHROPIC_MODELS });
+      if (!AI_BASE_URL) return res.json({ models: [] });
+      if (Date.now() - modelsCache.at < 60000) return res.json({ models: modelsCache.models });
+      const models = await listModels({ baseUrl: AI_BASE_URL, apiKey: AI_API_KEY, timeoutMs: AI_TIMEOUT_MS });
+      modelsCache = { at: Date.now(), models };
+      res.json({ models });
+    } catch (error) {
+      handleError(res, error, 'Failed to list AI models');
+    }
+  });
+
+  // Persist the UI's model choice (empty/null clears back to env default)
+  router.put('/ai/model', (req, res) => {
+    const { model } = req.body || {};
+    if (model !== null && model !== undefined && typeof model !== 'string') {
+      return res.status(400).json({ error: 'model must be a string or null' });
+    }
+    db.setSetting(MODEL_SETTING_KEY, model || null);
     res.json(publicConfig());
   });
 
@@ -19,7 +50,9 @@ function createRouter(getServers, io) {
         return res.status(429).json({ error: 'Analysis rate limited — wait a minute between runs' });
       }
       lastRunAt = Date.now();
-      const record = await runAnalysis(getServers);
+      // Optional one-off model for this run (doesn't change the default)
+      const model = typeof req.body?.model === 'string' && req.body.model ? req.body.model : undefined;
+      const record = await runAnalysis(getServers, { model });
       afterAiAnalysis(io, record, getServers);
       res.json(toClientShape(record));
     } catch (error) {
