@@ -10,7 +10,7 @@ let db;
 
 // ─── Default scripts (seed data) ────────────────────────────────────
 const DEFAULT_SCRIPTS = [
-  { id: 'docker-prune', name: 'Docker Prune', description: 'Remove unused Docker images and containers', command: 'docker system prune -af --volumes' },
+  { id: 'docker-prune', name: 'Docker Prune', description: 'Remove unused Docker images and containers', command: 'docker system prune -af --volumes', destructive: 1 },
   { id: 'clean-logs', name: 'Clean Logs', description: 'Clean up old log files and journal entries', command: "sudo find /var/log -name '*.gz' -delete && sudo journalctl --vacuum-time=7d" },
   { id: 'security-scan', name: 'Security Scan', description: 'Run Lynis security audit', command: 'sudo lynis audit system --quick 2>&1 | tail -30' },
   { id: 'disk-usage', name: 'Disk Usage', description: 'Show disk usage summary, top directories, and Docker disk usage', command: 'echo "=== Disk Usage Summary ==="; df -h / | tail -1; echo; echo "=== Top 20 directories by size (/) ==="; sudo du -sh /* 2>/dev/null | sort -rh | head -20; echo; echo "=== Docker disk usage ==="; docker system df 2>/dev/null' },
@@ -20,9 +20,19 @@ const DEFAULT_SCRIPTS = [
   { id: 'docker-stats', name: 'Docker Stats', description: 'Show Docker container statistics', command: "docker stats --no-stream --format '{{json .}}'" },
   { id: 'backup-db', name: 'Backup DB', description: 'Create database backup (edit command to match your setup)', command: 'echo "Configure your backup command in the dashboard"' },
   { id: 'check-updates', name: 'Check Updates', description: 'Check for available system updates', command: 'apt list --upgradable 2>/dev/null' },
-  { id: 'apply-updates', name: 'Apply Updates', description: 'Apply all pending security and system updates (requires sudo)', command: 'sudo apt update && sudo apt upgrade -y && echo "---" && echo "Updates applied successfully" && if [ -f /var/run/reboot-required ]; then echo "*** REBOOT REQUIRED ***"; else echo "No reboot required"; fi' },
-  { id: 'safe-reboot', name: 'Safe Reboot', description: 'Sanity reboot: shows pre-reboot checklist then schedules reboot in 1 minute (requires sudo)', command: 'echo "=== Pre-reboot checklist ==="; echo; echo "Uptime:"; uptime; echo; echo "Running containers:"; docker ps --format "table {{.Names}}\\t{{.Status}}" 2>/dev/null; echo; echo "Pending updates requiring reboot:"; cat /var/run/reboot-required 2>/dev/null || echo "None"; cat /var/run/reboot-required.pkgs 2>/dev/null; echo; echo "=== Scheduling reboot in 1 minute ==="; sudo shutdown -r +1 "Scheduled reboot from dashboard" && echo "Reboot scheduled. Run: sudo shutdown -c to cancel."' },
+  { id: 'apply-updates', name: 'Apply Updates', description: 'Apply all pending security and system updates (requires sudo)', command: 'sudo apt update && sudo apt upgrade -y && echo "---" && echo "Updates applied successfully" && if [ -f /var/run/reboot-required ]; then echo "*** REBOOT REQUIRED ***"; else echo "No reboot required"; fi', destructive: 1 },
+  { id: 'safe-reboot', name: 'Safe Reboot', description: 'Sanity reboot: shows pre-reboot checklist then schedules reboot in 1 minute (requires sudo)', command: 'echo "=== Pre-reboot checklist ==="; echo; echo "Uptime:"; uptime; echo; echo "Running containers:"; docker ps --format "table {{.Names}}\\t{{.Status}}" 2>/dev/null; echo; echo "Pending updates requiring reboot:"; cat /var/run/reboot-required 2>/dev/null || echo "None"; cat /var/run/reboot-required.pkgs 2>/dev/null; echo; echo "=== Scheduling reboot in 1 minute ==="; sudo shutdown -r +1 "Scheduled reboot from dashboard" && echo "Reboot scheduled. Run: sudo shutdown -c to cancel."', destructive: 1 },
 ];
+
+// Executions keep the tail of the output (errors usually print last)
+const MAX_EXECUTION_OUTPUT = 50 * 1024;
+
+function truncateOutput(output) {
+  if (output == null) return null;
+  const text = String(output);
+  if (text.length <= MAX_EXECUTION_OUTPUT) return text;
+  return `…[truncated, showing last ${MAX_EXECUTION_OUTPUT} chars]…\n` + text.slice(-MAX_EXECUTION_OUTPUT);
+}
 
 // ─── Init ────────────────────────────────────────────────────────────
 function initDB() {
@@ -53,6 +63,7 @@ function initDB() {
       name TEXT NOT NULL,
       description TEXT DEFAULT '',
       command TEXT NOT NULL,
+      destructive INTEGER DEFAULT 0,
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
@@ -86,8 +97,10 @@ function initDB() {
       server TEXT NOT NULL,
       exit_code INTEGER,
       started_at TEXT DEFAULT (datetime('now')),
-      duration_ms INTEGER
+      duration_ms INTEGER,
+      output TEXT
     );
+    CREATE INDEX IF NOT EXISTS idx_exec_server_ts ON script_executions(server, started_at);
 
     CREATE TABLE IF NOT EXISTS servers (
       key TEXT PRIMARY KEY,
@@ -149,13 +162,29 @@ function initDB() {
     );
   `);
 
+  // Column migrations for DBs created before these features existed
+  const hasColumn = (table, col) =>
+    db.prepare(`SELECT COUNT(*) AS c FROM pragma_table_info(?) WHERE name = ?`).get(table, col).c > 0;
+  if (!hasColumn('script_executions', 'output')) {
+    db.exec('ALTER TABLE script_executions ADD COLUMN output TEXT');
+    console.log('[db] Migrated script_executions: added output column');
+  }
+  if (!hasColumn('scripts', 'destructive')) {
+    db.exec('ALTER TABLE scripts ADD COLUMN destructive INTEGER DEFAULT 0');
+    const seeded = DEFAULT_SCRIPTS.filter(s => s.destructive).map(s => s.id);
+    db.prepare(
+      `UPDATE scripts SET destructive = 1 WHERE id IN (${seeded.map(() => '?').join(',')})`
+    ).run(...seeded);
+    console.log('[db] Migrated scripts: added destructive column');
+  }
+
   // Seed scripts if table is empty
   const count = db.prepare('SELECT COUNT(*) as c FROM scripts').get();
   if (count.c === 0) {
-    const insert = db.prepare('INSERT INTO scripts (id, name, description, command) VALUES (?, ?, ?, ?)');
+    const insert = db.prepare('INSERT INTO scripts (id, name, description, command, destructive) VALUES (?, ?, ?, ?, ?)');
     const insertMany = db.transaction((scripts) => {
       for (const s of scripts) {
-        insert.run(s.id, s.name, s.description, s.command);
+        insert.run(s.id, s.name, s.description, s.command, s.destructive || 0);
       }
     });
     insertMany(DEFAULT_SCRIPTS);
@@ -212,19 +241,20 @@ function getScript(id) {
   return db.prepare('SELECT * FROM scripts WHERE id = ?').get(id);
 }
 
-function createScript({ id, name, description, command }) {
+function createScript({ id, name, description, command, destructive }) {
   db.prepare(
-    'INSERT INTO scripts (id, name, description, command) VALUES (?, ?, ?, ?)'
-  ).run(id, name, description || '', command);
+    'INSERT INTO scripts (id, name, description, command, destructive) VALUES (?, ?, ?, ?, ?)'
+  ).run(id, name, description || '', command, destructive ? 1 : 0);
   return getScript(id);
 }
 
-function updateScript(id, { name, description, command }) {
+function updateScript(id, { name, description, command, destructive }) {
   const fields = [];
   const values = [];
   if (name !== undefined) { fields.push('name = ?'); values.push(name); }
   if (description !== undefined) { fields.push('description = ?'); values.push(description); }
   if (command !== undefined) { fields.push('command = ?'); values.push(command); }
+  if (destructive !== undefined) { fields.push('destructive = ?'); values.push(destructive ? 1 : 0); }
   if (fields.length === 0) return getScript(id);
 
   fields.push("updated_at = datetime('now')");
@@ -412,21 +442,40 @@ function getMetricDetails(server, timestamp) {
 }
 
 // ─── Script Executions ───────────────────────────────────────────────
-function logExecution({ scriptId, server, exitCode, startedAt, durationMs }) {
+function logExecution({ scriptId, server, exitCode, startedAt, durationMs, output }) {
   db.prepare(
-    'INSERT INTO script_executions (script_id, server, exit_code, started_at, duration_ms) VALUES (?, ?, ?, ?, ?)'
-  ).run(scriptId, server, exitCode, startedAt || new Date().toISOString(), durationMs || 0);
+    'INSERT INTO script_executions (script_id, server, exit_code, started_at, duration_ms, output) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(scriptId, server, exitCode, startedAt || new Date().toISOString(), durationMs || 0, truncateOutput(output));
 }
 
-function getExecutions(server, limit = 50) {
-  if (server) {
-    return db.prepare(
-      'SELECT * FROM script_executions WHERE server = ? ORDER BY started_at DESC LIMIT ?'
-    ).all(server, limit);
-  }
+// Listing omits the (potentially large) output; fetch it per-row with
+// getExecution(id). output_bytes lets the UI show an expand affordance.
+const EXECUTION_LIST_COLS =
+  'id, script_id, server, exit_code, started_at, duration_ms, LENGTH(output) AS output_bytes';
+
+function getExecutions(server, limit = 50, scriptId = null) {
+  const where = [];
+  const params = [];
+  if (server) { where.push('server = ?'); params.push(server); }
+  if (scriptId) { where.push('script_id = ?'); params.push(scriptId); }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
   return db.prepare(
-    'SELECT * FROM script_executions ORDER BY started_at DESC LIMIT ?'
-  ).all(limit);
+    `SELECT ${EXECUTION_LIST_COLS} FROM script_executions ${whereSql} ORDER BY started_at DESC, id DESC LIMIT ?`
+  ).all(...params, limit);
+}
+
+function getExecution(id) {
+  return db.prepare('SELECT * FROM script_executions WHERE id = ?').get(id);
+}
+
+// Latest execution per script on a server — powers the last-run badges
+function getLatestExecutions(server) {
+  return db.prepare(`
+    SELECT ${EXECUTION_LIST_COLS} FROM (
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY script_id ORDER BY started_at DESC, id DESC) AS rn
+      FROM script_executions WHERE server = ?
+    ) WHERE rn = 1
+  `).all(server);
 }
 
 // ─── Servers CRUD ────────────────────────────────────────────────
@@ -579,6 +628,9 @@ module.exports = {
   // Executions
   logExecution,
   getExecutions,
+  getExecution,
+  getLatestExecutions,
+  truncateOutput,
   // Alerts
   openAlert,
   getAlert,

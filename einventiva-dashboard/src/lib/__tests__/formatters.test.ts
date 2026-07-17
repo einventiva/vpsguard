@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatUptime, getStatusColor } from '../formatters'
+import { formatUptime, getStatusColor, formatRelativeTime, formatDuration } from '../formatters'
 import type { ServerStatus } from '@/types'
 
 describe('formatUptime', () => {
@@ -21,6 +21,40 @@ describe('formatUptime', () => {
 
   it('days take priority over showing minutes', () => {
     expect(formatUptime(2 * 86400 + 0 * 3600 + 30 * 60)).toBe('2d 0h')
+  })
+})
+
+describe('formatRelativeTime', () => {
+  const now = new Date('2026-07-16T12:00:00Z')
+
+  it('says just now under a minute', () => {
+    expect(formatRelativeTime('2026-07-16T11:59:30Z', now)).toBe('just now')
+  })
+
+  it('formats minutes', () => {
+    expect(formatRelativeTime('2026-07-16T11:55:00Z', now)).toBe('5m ago')
+  })
+
+  it('formats hours', () => {
+    expect(formatRelativeTime('2026-07-16T09:00:00Z', now)).toBe('3h ago')
+  })
+
+  it('formats days', () => {
+    expect(formatRelativeTime('2026-07-14T12:00:00Z', now)).toBe('2d ago')
+  })
+})
+
+describe('formatDuration', () => {
+  it('formats sub-second durations in ms', () => {
+    expect(formatDuration(850)).toBe('850ms')
+  })
+
+  it('formats seconds with one decimal', () => {
+    expect(formatDuration(2500)).toBe('2.5s')
+  })
+
+  it('formats minutes and seconds', () => {
+    expect(formatDuration(72000)).toBe('1m 12s')
   })
 })
 
