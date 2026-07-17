@@ -38,6 +38,9 @@ export function useAlerts(): UseAlertsReturn {
       'disk-eta': 'Disk projected to fill up',
       cron: 'Cron jobs overdue',
       'pg-connections': 'PostgreSQL connections near limit',
+      inodes: 'Inode exhaustion',
+      systemd: 'Failed systemd units',
+      ssl: 'SSL certificate expiring',
     }
 
     const onOpened = (alert: Alert) => {

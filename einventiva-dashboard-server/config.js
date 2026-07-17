@@ -49,6 +49,8 @@ const PG_CONN_ALERT_PCT = parseInt(process.env.PG_CONN_ALERT_PCT || '80');
 const SLOW_CHECK_INTERVAL = 60 * 60 * 1000;
 const SLOW_CHECK_STARTUP_DELAY = 3 * 60 * 1000;
 const DISK_ETA_ALERT_DAYS = parseInt(process.env.DISK_ETA_ALERT_DAYS || '14');
+// Open an ssl alert when a certificate expires within this many days
+const SSL_ALERT_DAYS = parseInt(process.env.SSL_ALERT_DAYS || '14');
 const PRUNE_KEEP_DAYS = parseInt(process.env.PRUNE_KEEP_DAYS || '30');
 // Per-process/container detail is only useful for recent diagnosis and
 // grows ~35x faster than metrics_history — keep it short
@@ -137,6 +139,7 @@ module.exports = {
   SLOW_CHECK_INTERVAL,
   SLOW_CHECK_STARTUP_DELAY,
   DISK_ETA_ALERT_DAYS,
+  SSL_ALERT_DAYS,
   PG_SAMPLE_INTERVAL,
   PG_SAMPLE_STARTUP_DELAY,
   PG_KEEP_DAYS,
