@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.2.0] — 2026-07-16
+
+#### Added
+- **System signals** in the 15s metrics cycle: swap usage (parsed from the existing `free -m` at zero extra cost), inode usage (`df -i /`), pending-reboot flag, and failed systemd units — surfaced as attention chips on each server card
+- **New hysteresis-managed alert types**: `inodes` (critical over 90% — a disk can fill on inodes with free space left) and `systemd` (failed units, with unit names in the message)
+- **SSH latency** per server, measured as the metrics round-trip (no extra command), shown next to Load Avg and colored on deviation from baseline
+- **SSL certificate watch**: hourly `sudo -n certbot certificates` check with an `ssl` alert when any certificate expires within `SSL_ALERT_DAYS` (14; critical ≤ 7 days), auto-resolving after renewal; silent without passwordless sudo (no false alarms)
+
 ### [1.1.0] — 2026-07-16
 
 #### Added
@@ -54,6 +62,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.2.0] — 2026-07-16
+
+#### Agregado
+- **Señales de sistema** en el ciclo de métricas de 15s: uso de swap (parseado del `free -m` existente con costo cero), uso de inodos (`df -i /`), flag de reinicio pendiente y unidades systemd fallidas — mostrados como chips de atención en cada tarjeta de servidor
+- **Nuevos tipos de alerta con histéresis**: `inodes` (critical sobre 90% — un disco puede llenarse de inodos con espacio libre) y `systemd` (unidades fallidas, con los nombres en el mensaje)
+- **Latencia SSH** por servidor, medida como el round-trip de la recolección de métricas (sin comando extra), mostrada junto al Load Avg y coloreada por desviación del baseline
+- **Vigilancia de certificados SSL**: chequeo horario con `sudo -n certbot certificates` y alerta `ssl` cuando algún certificado expira dentro de `SSL_ALERT_DAYS` (14; critical ≤ 7 días), con resolución automática tras renovar; silencioso sin sudo sin contraseña (sin falsas alarmas)
 
 ### [1.1.0] — 2026-07-16
 
