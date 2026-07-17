@@ -9,13 +9,14 @@ const { computeProjections } = require('./projections');
 const { getCronStatus } = require('./cronWatch');
 const { samplePgServer } = require('./pgHistory');
 const { fetchCertificates } = require('./sslCheck');
+const { fetchRestartCounts, computeRestartDeltas, toSnapshot } = require('./containerWatch');
 const { sendWebhook } = require('./notify');
 const { setCache } = require('./cache');
 const {
-  METRICS_INTERVAL, PRUNE_INTERVAL, PRUNE_STARTUP_DELAY, PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS,
+  METRICS_INTERVAL, DETAIL_EVERY_CYCLES, PRUNE_INTERVAL, PRUNE_STARTUP_DELAY, PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS,
   ROLLUP_INTERVAL, ROLLUP_STARTUP_DELAY, ROLLUP_KEEP_DAYS,
   SLOW_CHECK_INTERVAL, SLOW_CHECK_STARTUP_DELAY, DISK_ETA_ALERT_DAYS, SSL_ALERT_DAYS,
-  PG_SAMPLE_INTERVAL, PG_SAMPLE_STARTUP_DELAY, PG_KEEP_DAYS, PG_CONN_ALERT_PCT,
+  PG_SAMPLE_INTERVAL, PG_SAMPLE_STARTUP_DELAY, PG_KEEP_DAYS, PG_CONN_ALERT_PCT, PG_REPL_LAG_ALERT_MB,
   ALERT_SAMPLES_TO_OPEN, ALERT_SAMPLES_TO_RESOLVE,
 } = require('../config');
 
@@ -77,8 +78,13 @@ function startMetricsLoop(io, getServers) {
     samplesToResolve: ALERT_SAMPLES_TO_RESOLVE,
   });
 
+  let cycle = 0;
   setInterval(async () => {
     try {
+      cycle++;
+      // Detail (top processes/containers) is stored every Nth cycle
+      // (~60s) — the drill-down finds the nearest sample via window=
+      const storeDetail = cycle % DETAIL_EVERY_CYCLES === 0;
       const statusData = await fetchAllServerStatus(getServers);
       setCache('status', statusData, 10000);
 
@@ -104,7 +110,7 @@ function startMetricsLoop(io, getServers) {
         // Store detail
         const details = [];
 
-        if (Array.isArray(parsed.topProcesses)) {
+        if (storeDetail && Array.isArray(parsed.topProcesses)) {
           for (const p of parsed.topProcesses) {
             details.push({
               type: 'process',
@@ -116,7 +122,7 @@ function startMetricsLoop(io, getServers) {
           }
         }
 
-        if (Array.isArray(parsed.dockerStats)) {
+        if (storeDetail && Array.isArray(parsed.dockerStats)) {
           for (const c of parsed.dockerStats) {
             details.push({
               type: 'container',
@@ -195,6 +201,10 @@ function transitionAlert(io, { server, type, active, severity, message, value, t
 
 const shortCmd = (cmd) => (cmd.length > 40 ? `${cmd.slice(0, 40)}…` : cmd);
 
+// Previous restart-count snapshot per server; first pass after a
+// dashboard restart is a baseline and never alerts
+const restartSnapshots = new Map(); // serverKey -> Map(container -> count)
+
 async function runSlowChecks(io, getServers) {
   const SERVERS = getServers();
   for (const [key, svr] of Object.entries(SERVERS)) {
@@ -216,6 +226,27 @@ async function runSlowChecks(io, getServers) {
       });
     } catch (e) {
       log('Disk ETA check failed', { server: key, error: e.message });
+    }
+
+    // Container flapping: restart counts growing between hourly passes
+    try {
+      const containers = await fetchRestartCounts(svr.alias);
+      const prev = restartSnapshots.get(key);
+      if (prev) {
+        const deltas = computeRestartDeltas(prev, containers);
+        transitionAlert(io, {
+          server: key,
+          type: 'flapping',
+          active: deltas.length > 0,
+          severity: deltas.some(d => d.oomKilled) ? 'critical' : 'warning',
+          message: `${svr.displayName}: container restarts increasing: ${deltas.map(d => `${d.name} (+${d.delta}, total ${d.total}${d.oomKilled ? ', OOM' : ''})`).join(', ')}`,
+          value: deltas.reduce((sum, d) => sum + d.delta, 0) || null,
+          threshold: null,
+        });
+      }
+      restartSnapshots.set(key, toSnapshot(containers));
+    } catch (e) {
+      log('Container flapping check failed', { server: key, error: e.message });
     }
 
     // SSL certificate expiry alert (unknown = no certs found or no
@@ -259,7 +290,7 @@ async function runPgSampling(io, getServers) {
   const SERVERS = getServers();
   for (const [key, svr] of Object.entries(SERVERS)) {
     try {
-      const { rows, saturation } = await samplePgServer(key, svr.alias);
+      const { rows, saturation, replication } = await samplePgServer(key, svr.alias);
       if (rows.length > 0) db.appendPgMetrics(rows);
 
       // Connection saturation alert — sampled every 5 min, already smooth
@@ -272,6 +303,19 @@ async function runPgSampling(io, getServers) {
         message: `${svr.displayName}: PostgreSQL connections at ${over.map(s => `${s.container} ${s.connections}/${s.maxConnections} (${s.pct}%)`).join(', ')}`,
         value: over.length > 0 ? Math.max(...over.map(s => s.pct)) : null,
         threshold: PG_CONN_ALERT_PCT,
+      });
+
+      // Replication lag alert — a standby falling behind its primary
+      const lagLimit = PG_REPL_LAG_ALERT_MB * 1048576;
+      const lagging = replication.filter(r => r.lagBytes >= lagLimit);
+      transitionAlert(io, {
+        server: key,
+        type: 'pg-replication',
+        active: lagging.length > 0,
+        severity: lagging.some(r => r.lagBytes >= lagLimit * 4) ? 'critical' : 'warning',
+        message: `${svr.displayName}: replication lag: ${lagging.map(r => `${r.container} ${(r.lagBytes / 1048576).toFixed(0)}MB`).join(', ')}`,
+        value: lagging.length > 0 ? Math.round(Math.max(...lagging.map(r => r.lagBytes)) / 1048576) : null,
+        threshold: PG_REPL_LAG_ALERT_MB,
       });
     } catch (e) {
       log('PG sampling failed', { server: key, error: e.message });

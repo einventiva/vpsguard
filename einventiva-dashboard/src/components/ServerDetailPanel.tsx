@@ -212,8 +212,9 @@ export function ServerDetailPanel({ serverKey, serverInfo, serverStatus }: Serve
     const fetchBreakdown = async () => {
       setBreakdownLoading(true)
       try {
-        // Bucketed points are averages: find the nearest real sample
-        const detail = await api.getMetricDetail(serverKey, peakTimestamp, bucketSeconds > 15 ? bucketSeconds : undefined)
+        // Bucketed points are averages, and detail is sampled every
+        // ~60s: always search a window for the nearest real sample
+        const detail = await api.getMetricDetail(serverKey, peakTimestamp, Math.max(bucketSeconds, 120))
         setProcesses(detail.processes || [])
         setContainers(detail.containers || [])
         setBreakdownTime(detail.timestamp || peakTimestamp)

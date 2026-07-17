@@ -33,6 +33,11 @@ function latencyColor(ms: number): string {
 export function ServerCard({ server, title, thresholds = DEFAULT_THRESHOLDS, projection, onClick }: ServerCardProps) {
   const diskEta = projection?.disk.etaDays ?? null
   const memTrend = projection?.memory.trendingUp ? projection.memory.slopePerHour : null
+  // Defensive: state transformed by an older bundle (HMR, cached tab)
+  // may predate the newer signal fields
+  const failedUnits = server.failed_units ?? []
+  const swapPercent = server.swap_percent ?? 0
+  const inodesPercent = server.inodes_percent ?? 0
   const cpuRadius = 45
   const cpuCircumference = 2 * Math.PI * cpuRadius
   const cpuOffset = cpuCircumference - (server.cpu_percent / 100) * cpuCircumference
@@ -208,26 +213,26 @@ export function ServerCard({ server, title, thresholds = DEFAULT_THRESHOLDS, pro
         </div>
 
         {/* Signal chips — only shown when something needs attention */}
-        {(server.reboot_required || server.failed_units.length > 0 || server.swap_percent > 50 || server.inodes_percent > 80) && (
+        {(server.reboot_required || failedUnits.length > 0 || swapPercent > 50 || inodesPercent > 80) && (
           <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-zinc-700">
             {server.reboot_required && (
               <span className="flex items-center gap-1 text-[10px] text-amber-400 bg-amber-900/20 border border-amber-800/50 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider" title="Pending updates require a reboot">
                 <RotateCcw className="w-3 h-3" /> Reboot required
               </span>
             )}
-            {server.failed_units.length > 0 && (
-              <span className="flex items-center gap-1 text-[10px] text-red-400 bg-red-900/20 border border-red-800/50 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider" title={server.failed_units.join(', ')}>
-                <AlertTriangle className="w-3 h-3" /> {server.failed_units.length} failed unit{server.failed_units.length !== 1 ? 's' : ''}
+            {failedUnits.length > 0 && (
+              <span className="flex items-center gap-1 text-[10px] text-red-400 bg-red-900/20 border border-red-800/50 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider" title={failedUnits.join(', ')}>
+                <AlertTriangle className="w-3 h-3" /> {failedUnits.length} failed unit{failedUnits.length !== 1 ? 's' : ''}
               </span>
             )}
-            {server.swap_percent > 50 && (
+            {swapPercent > 50 && (
               <span className="text-[10px] text-amber-400 bg-amber-900/20 border border-amber-800/50 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider" title="Sustained swap usage means real memory pressure">
-                Swap {server.swap_percent.toFixed(0)}%
+                Swap {swapPercent.toFixed(0)}%
               </span>
             )}
-            {server.inodes_percent > 80 && (
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider border ${server.inodes_percent > 90 ? 'text-red-400 bg-red-900/20 border-red-800/50' : 'text-amber-400 bg-amber-900/20 border-amber-800/50'}`} title="Inode usage — a disk can fill on inodes with free space left">
-                Inodes {server.inodes_percent}%
+            {inodesPercent > 80 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider border ${inodesPercent > 90 ? 'text-red-400 bg-red-900/20 border-red-800/50' : 'text-amber-400 bg-amber-900/20 border-amber-800/50'}`} title="Inode usage — a disk can fill on inodes with free space left">
+                Inodes {inodesPercent}%
               </span>
             )}
           </div>

@@ -10,6 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.3.0] — 2026-07-17
+
+#### Added
+- **Container flapping alert**: the hourly check snapshots per-container restart counts and opens a `flapping` alert when they grow between passes (critical if OOM-killed), auto-resolving when restarts stop; first pass after a dashboard restart is a baseline — no false alarms
+- **PostgreSQL replication lag alert**: `pg-replication` opens when a standby's lag exceeds `PG_REPL_LAG_ALERT_MB` (100 MB; critical at 4×), fed by the existing 5-min sampler
+
+#### Changed
+- Per-process/container detail is now stored every ~60s instead of every 15s (4× less `metrics_detail` growth); the drill-down transparently finds the nearest stored sample via the existing window search
+
+#### Fixed
+- ServerCard no longer crashes when rendering a server status shape from an older bundle (defensive defaults for the newer signal fields)
+
 ### [1.2.1] — 2026-07-16
 
 #### Fixed
@@ -72,6 +84,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.3.0] — 2026-07-17
+
+#### Agregado
+- **Alerta por flapping de containers**: el chequeo horario toma un snapshot de los conteos de reinicio por container y abre una alerta `flapping` cuando crecen entre pasadas (critical si hubo OOM-kill), con resolución automática cuando los reinicios paran; la primera pasada tras un reinicio del dashboard es baseline — sin falsas alarmas
+- **Alerta por lag de replicación PostgreSQL**: `pg-replication` abre cuando el lag de un standby supera `PG_REPL_LAG_ALERT_MB` (100 MB; critical a 4×), alimentada por el muestreador existente de 5 min
+
+#### Cambiado
+- El detalle por proceso/container ahora se guarda cada ~60s en vez de cada 15s (4× menos crecimiento de `metrics_detail`); el drill-down encuentra la muestra más cercana de forma transparente vía la búsqueda por ventana existente
+
+#### Corregido
+- ServerCard ya no falla al renderizar un estado de servidor con la forma de un bundle anterior (defaults defensivos para los campos de señales nuevos)
 
 ### [1.2.1] — 2026-07-16
 

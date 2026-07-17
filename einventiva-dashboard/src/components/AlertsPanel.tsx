@@ -46,6 +46,8 @@ const TYPE_LABELS: Record<Alert['type'], string> = {
   inodes: 'INODES',
   systemd: 'SYSTEMD',
   ssl: 'SSL',
+  flapping: 'FLAPPING',
+  'pg-replication': 'PG REPL',
 }
 
 function AlertRow({ alert, serverName, onAck }: { alert: Alert; serverName: string; onAck: (id: number) => void }) {
