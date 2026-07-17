@@ -32,10 +32,41 @@ describe('parseSystemMetrics', () => {
       ps: 'USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND\nroot         1  2.5  0.1  12345  6789 ?        Ss   Jan01   1:23 /sbin/init',
       dockerStats: '{"Name":"nginx","CPUPerc":"1.5%","MemUsage":"50MiB / 512MiB"}',
       cores: '4',
+      inodes: 'Filesystem      Inodes  IUsed   IFree IUse% Mounted on\n/dev/sda1      3276800 412000 2864800   13% /',
+      reboot: 'no',
+      failed: '',
     };
     const s = { ...defaults, ...overrides };
-    return [s.cpu, s.mem, s.disk, s.uptime, s.docker, s.ps, s.dockerStats, s.cores].join('---SEPARATOR---');
+    return [s.cpu, s.mem, s.disk, s.uptime, s.docker, s.ps, s.dockerStats, s.cores, s.inodes, s.reboot, s.failed].join('---SEPARATOR---');
   };
+
+  it('parses swap from the free output', () => {
+    const output = makeSections({
+      mem: '              total        used        free\nMem:           7963        4123        1234\nSwap:          2047         512        1535',
+    });
+    const m = parseSystemMetrics(output);
+    assert.equal(m.memory.swapTotal, 2047);
+    assert.equal(m.memory.swapUsed, 512);
+  });
+
+  it('parses inodes, reboot-required, and failed units', () => {
+    const output = makeSections({
+      inodes: 'Filesystem      Inodes  IUsed   IFree IUse% Mounted on\n/dev/sda1      3276800 3047424  229376   93% /',
+      reboot: 'yes',
+      failed: 'nginx.service loaded failed failed A high performance web server\nredis.service loaded failed failed Advanced key-value store',
+    });
+    const m = parseSystemMetrics(output);
+    assert.equal(m.inodes.percentUsed, '93%');
+    assert.equal(m.rebootRequired, true);
+    assert.deepEqual(m.failedUnits, ['nginx.service', 'redis.service']);
+  });
+
+  it('defaults new sections cleanly when healthy', () => {
+    const m = parseSystemMetrics(makeSections());
+    assert.equal(m.inodes.percentUsed, '13%');
+    assert.equal(m.rebootRequired, false);
+    assert.deepEqual(m.failedUnits, []);
+  });
 
   it('parses all sections correctly', () => {
     const output = makeSections();

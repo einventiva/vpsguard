@@ -70,5 +70,10 @@ export function transformServerStatus(serverData: any, alias: ServerAlias): Serv
     uptime_seconds: parseUptimeRaw(uptime.raw),
     load_avg: parseLoadAvg(uptime.raw),
     container_count: Array.isArray(docker) ? docker.length : 0,
+    swap_percent: memory.swapTotal > 0 ? (memory.swapUsed / memory.swapTotal) * 100 : 0,
+    inodes_percent: parseDiskPercent(metrics.inodes?.percentUsed),
+    failed_units: Array.isArray(metrics.failedUnits) ? metrics.failedUnits : [],
+    reboot_required: metrics.rebootRequired === true,
+    ssh_latency_ms: typeof serverData.latencyMs === 'number' ? serverData.latencyMs : null,
   }
 }

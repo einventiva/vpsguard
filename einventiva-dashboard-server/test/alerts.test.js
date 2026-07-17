@@ -5,7 +5,7 @@ const { createAlertEngine } = require('../services/alertEngine');
 
 const THRESHOLDS = { cpu: 80, memory: 85, disk: 90 };
 
-function sample({ cpu = 10, memUsed = 1000, memTotal = 10000, disk = 50, offline = false } = {}) {
+function sample({ cpu = 10, memUsed = 1000, memTotal = 10000, disk = 50, inodes = 20, failedUnits = [], offline = false } = {}) {
   if (offline) return { status: 'error', error: 'ssh failed' };
   return {
     status: 'connected',
@@ -13,6 +13,8 @@ function sample({ cpu = 10, memUsed = 1000, memTotal = 10000, disk = 50, offline
       cpu: { raw: `%Cpu(s): ${(100 - cpu).toFixed(1)} id` },
       memory: { total: memTotal, used: memUsed },
       disk: { percentUsed: `${disk}%` },
+      inodes: { percentUsed: `${inodes}%` },
+      failedUnits,
     },
   };
 }
@@ -56,6 +58,29 @@ describe('evaluateBreaches', () => {
 
   test('returns empty array when everything is under threshold', () => {
     assert.deepStrictEqual(evaluateBreaches('Prod', sample(), THRESHOLDS), []);
+  });
+
+  test('detects inode exhaustion as critical', () => {
+    const breaches = evaluateBreaches('Prod', sample({ inodes: 95 }), THRESHOLDS);
+    assert.strictEqual(breaches.length, 1);
+    assert.strictEqual(breaches[0].type, 'inodes');
+    assert.strictEqual(breaches[0].severity, 'critical');
+    assert.strictEqual(breaches[0].value, 95);
+  });
+
+  test('detects failed systemd units with names in the message', () => {
+    const breaches = evaluateBreaches('Prod', sample({ failedUnits: ['nginx.service', 'redis.service'] }), THRESHOLDS);
+    assert.strictEqual(breaches.length, 1);
+    assert.strictEqual(breaches[0].type, 'systemd');
+    assert.strictEqual(breaches[0].value, 2);
+    assert.ok(breaches[0].message.includes('nginx.service'));
+  });
+
+  test('missing inodes/failedUnits fields stay quiet (older agents)', () => {
+    const data = sample();
+    delete data.metrics.inodes;
+    delete data.metrics.failedUnits;
+    assert.deepStrictEqual(evaluateBreaches('Prod', data, THRESHOLDS), []);
   });
 
   test('detects cpu, memory, and disk breaches with values', () => {

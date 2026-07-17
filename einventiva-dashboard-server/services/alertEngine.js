@@ -1,6 +1,6 @@
 const { evaluateBreaches } = require('./alerts');
 
-const ALERT_TYPES = ['offline', 'cpu', 'memory', 'disk'];
+const ALERT_TYPES = ['offline', 'cpu', 'memory', 'disk', 'inodes', 'systemd'];
 
 // Alert lifecycle with hysteresis. `store` is the persistence layer
 // (db.js in production, a fake in tests) providing: getOpenAlert,
