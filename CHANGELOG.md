@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.6.0] — 2026-07-17
+
+#### Added
+- **Alert → script bridge**: scripts can be tagged with the alert types they help diagnose or remediate (`alert_types`, editable as chips in the editor; seeds pre-tagged — disk-usage/clean-logs/docker-prune for disk & disk-eta, docker-stats for cpu/memory/flapping, certbot-renew for ssl). Every **active** alert now shows shortcut buttons to its matching scripts (red if destructive); clicking one jumps to the Scripts tab with the script **and the alert's server** preselected. Detect → diagnose → remediate without leaving the dashboard — all v1.4 guards (sudo password, typed destructive confirmation) still apply
+
 ### [1.5.1] — 2026-07-17
 
 #### Security
@@ -116,6 +121,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.6.0] — 2026-07-17
+
+#### Agregado
+- **Puente alertas → scripts**: los scripts pueden etiquetarse con los tipos de alerta que ayudan a diagnosticar o remediar (`alert_types`, editable como chips en el editor; seeds pre-etiquetados — disk-usage/clean-logs/docker-prune para disk y disk-eta, docker-stats para cpu/memory/flapping, certbot-renew para ssl). Cada alerta **activa** muestra ahora botones de acceso directo a sus scripts correspondientes (rojos si son destructivos); el clic salta a la pestaña Scripts con el script **y el servidor de la alerta** preseleccionados. Detectar → diagnosticar → remediar sin salir del dashboard — todas las guardas de v1.4 (password de sudo, confirmación destructiva tipeada) siguen aplicando
 
 ### [1.5.1] — 2026-07-17
 

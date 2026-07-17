@@ -164,6 +164,7 @@ export const api = {
       destructive: !!s.destructive,
       schedule: s.schedule || null,
       scheduleServers: s.schedule_servers || '*',
+      alertTypes: (s.alert_types || '').split(',').map(t => t.trim()).filter(Boolean),
       output: '',
       status: 'idle' as const,
       timestamp: new Date().toISOString(),
@@ -176,14 +177,14 @@ export const api = {
     return response.items || []
   },
 
-  async createScript(data: { id: string; name: string; description: string; command: string; destructive?: boolean; schedule?: string | null; scheduleServers?: string }): Promise<ScriptItem> {
+  async createScript(data: { id: string; name: string; description: string; command: string; destructive?: boolean; schedule?: string | null; scheduleServers?: string; alertTypes?: string }): Promise<ScriptItem> {
     return fetchApi<ScriptItem>('/scripts', {
       method: 'POST',
       body: JSON.stringify(data),
     })
   },
 
-  async updateScript(id: string, data: { name?: string; description?: string; command?: string; destructive?: boolean; schedule?: string | null; scheduleServers?: string }): Promise<ScriptItem> {
+  async updateScript(id: string, data: { name?: string; description?: string; command?: string; destructive?: boolean; schedule?: string | null; scheduleServers?: string; alertTypes?: string }): Promise<ScriptItem> {
     return fetchApi<ScriptItem>(`/scripts/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -218,6 +219,7 @@ export const api = {
           destructive: false,
           schedule: null,
           scheduleServers: '*',
+          alertTypes: [],
           output: response.output || '',
           status: response.success ? 'success' : 'error',
           timestamp: response.timestamp || new Date().toISOString(),

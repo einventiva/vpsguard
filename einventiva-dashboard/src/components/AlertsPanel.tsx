@@ -1,17 +1,20 @@
-import { useState } from 'react'
-import type { Alert, ServerInfo } from '@/types'
+import { useState, useEffect } from 'react'
+import type { Alert, ScriptResult, ServerInfo } from '@/types'
 import type { UseAlertsReturn } from '@/hooks/useAlerts'
 import type { UseThresholdsReturn } from '@/hooks/useThresholds'
 import { ThresholdsEditor } from './ThresholdsEditor'
+import { api } from '@/lib/api'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { AlertCircle, AlertTriangle, CheckCircle, Check, Loader, BellOff } from 'lucide-react'
+import { AlertCircle, AlertTriangle, CheckCircle, Check, Loader, BellOff, Wrench } from 'lucide-react'
 
 interface AlertsPanelProps {
   alertsApi: UseAlertsReturn
   thresholdsApi: UseThresholdsReturn
   servers: Record<string, ServerInfo>
+  // Alert → script bridge: open the Scripts tab with script + server preselected
+  onOpenScript?: (script: string, server: string) => void
 }
 
 type FilterType = 'active' | 'all'
@@ -51,7 +54,13 @@ const TYPE_LABELS: Record<Alert['type'], string> = {
   script: 'SCRIPT',
 }
 
-function AlertRow({ alert, serverName, onAck }: { alert: Alert; serverName: string; onAck: (id: number) => void }) {
+function AlertRow({ alert, serverName, onAck, suggestions, onOpenScript }: {
+  alert: Alert
+  serverName: string
+  onAck: (id: number) => void
+  suggestions: ScriptResult[]
+  onOpenScript?: (script: string, server: string) => void
+}) {
   const active = !alert.resolved_at
   const Icon = active
     ? (alert.severity === 'critical' ? AlertCircle : AlertTriangle)
@@ -73,6 +82,23 @@ function AlertRow({ alert, serverName, onAck }: { alert: Alert; serverName: stri
           {alert.value != null && alert.threshold != null && ['cpu', 'memory', 'disk'].includes(alert.type) && ` · peak ${alert.value.toFixed(1)}% (limit ${alert.threshold}%)`}
           {alert.type === 'disk-eta' && alert.value != null && ` · ~${Math.round(alert.value)}d left (alert at ${alert.threshold}d)`}
         </p>
+        {active && suggestions.length > 0 && onOpenScript && (
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            {suggestions.map(s => (
+              <button
+                key={s.id}
+                onClick={() => onOpenScript(s.id, alert.server)}
+                title={`Open ${s.name} targeting ${serverName}`}
+                className={`flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border font-mono transition-colors ${s.destructive
+                  ? 'border-red-900/70 text-red-400 hover:bg-red-900/20'
+                  : 'border-zinc-700 text-blue-400 hover:bg-blue-900/20 hover:border-blue-800'}`}
+              >
+                <Wrench className="w-3 h-3" />
+                {s.id}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
         {active ? (
@@ -99,9 +125,19 @@ function AlertRow({ alert, serverName, onAck }: { alert: Alert; serverName: stri
   )
 }
 
-export function AlertsPanel({ alertsApi, thresholdsApi, servers }: AlertsPanelProps) {
+export function AlertsPanel({ alertsApi, thresholdsApi, servers, onOpenScript }: AlertsPanelProps) {
   const { alerts, loading, activeCount, acknowledge } = alertsApi
   const [filter, setFilter] = useState<FilterType>('all')
+  const [scripts, setScripts] = useState<ScriptResult[]>([])
+
+  // Scripts tagged with alert types power the suggestion buttons
+  useEffect(() => {
+    api.getAvailableScripts()
+      .then(setScripts)
+      .catch(err => console.error('Failed to fetch scripts for alert suggestions:', err))
+  }, [])
+
+  const suggestionsFor = (alert: Alert) => scripts.filter(s => s.alertTypes.includes(alert.type))
 
   const visible = filter === 'active' ? alerts.filter(a => !a.resolved_at) : alerts
 
@@ -149,6 +185,8 @@ export function AlertsPanel({ alertsApi, thresholdsApi, servers }: AlertsPanelPr
               alert={alert}
               serverName={servers[alert.server]?.displayName || alert.server}
               onAck={acknowledge}
+              suggestions={suggestionsFor(alert)}
+              onOpenScript={onOpenScript}
             />
           ))
         )}

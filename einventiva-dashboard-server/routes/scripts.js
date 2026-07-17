@@ -33,7 +33,7 @@ function createRouter(getServers) {
   // Create script
   router.post('/scripts', (req, res) => {
     try {
-      const { id, name, description, command, destructive, schedule, scheduleServers } = req.body;
+      const { id, name, description, command, destructive, schedule, scheduleServers, alertTypes } = req.body;
       if (!id || !name || !command) {
         return res.status(400).json({ error: 'id, name, and command are required' });
       }
@@ -44,7 +44,7 @@ function createRouter(getServers) {
       if (scheduleError) {
         return res.status(400).json({ error: scheduleError });
       }
-      const script = db.createScript({ id, name, description, command, destructive, schedule, scheduleServers });
+      const script = db.createScript({ id, name, description, command, destructive, schedule, scheduleServers, alertTypes });
       log('Script created', { id });
       res.status(201).json(script);
     } catch (error) {
@@ -59,12 +59,12 @@ function createRouter(getServers) {
       if (!db.getScript(id)) {
         return res.status(404).json({ error: `Script '${id}' not found` });
       }
-      const { name, description, command, destructive, schedule, scheduleServers } = req.body;
+      const { name, description, command, destructive, schedule, scheduleServers, alertTypes } = req.body;
       const scheduleError = validateSchedule(schedule);
       if (scheduleError) {
         return res.status(400).json({ error: scheduleError });
       }
-      const script = db.updateScript(id, { name, description, command, destructive, schedule: schedule === '' ? null : schedule, scheduleServers });
+      const script = db.updateScript(id, { name, description, command, destructive, schedule: schedule === '' ? null : schedule, scheduleServers, alertTypes });
       log('Script updated', { id });
       res.json(script);
     } catch (error) {
