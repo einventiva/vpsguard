@@ -43,6 +43,7 @@ export function useAlerts(): UseAlertsReturn {
       ssl: 'SSL certificate expiring',
       flapping: 'Container restarts increasing',
       'pg-replication': 'PostgreSQL replication lagging',
+      script: 'Scheduled script failing',
     }
 
     const onOpened = (alert: Alert) => {

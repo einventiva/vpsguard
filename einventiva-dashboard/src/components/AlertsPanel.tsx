@@ -48,6 +48,7 @@ const TYPE_LABELS: Record<Alert['type'], string> = {
   ssl: 'SSL',
   flapping: 'FLAPPING',
   'pg-replication': 'PG REPL',
+  script: 'SCRIPT',
 }
 
 function AlertRow({ alert, serverName, onAck }: { alert: Alert; serverName: string; onAck: (id: number) => void }) {

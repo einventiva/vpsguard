@@ -64,6 +64,8 @@ function initDB() {
       description TEXT DEFAULT '',
       command TEXT NOT NULL,
       destructive INTEGER DEFAULT 0,
+      schedule TEXT,
+      schedule_servers TEXT DEFAULT '*',
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     );
@@ -98,7 +100,8 @@ function initDB() {
       exit_code INTEGER,
       started_at TEXT DEFAULT (datetime('now')),
       duration_ms INTEGER,
-      output TEXT
+      output TEXT,
+      triggered_by TEXT DEFAULT 'manual'
     );
     CREATE INDEX IF NOT EXISTS idx_exec_server_ts ON script_executions(server, started_at);
 
@@ -177,6 +180,15 @@ function initDB() {
     ).run(...seeded);
     console.log('[db] Migrated scripts: added destructive column');
   }
+  if (!hasColumn('scripts', 'schedule')) {
+    db.exec("ALTER TABLE scripts ADD COLUMN schedule TEXT");
+    db.exec("ALTER TABLE scripts ADD COLUMN schedule_servers TEXT DEFAULT '*'");
+    console.log('[db] Migrated scripts: added schedule columns');
+  }
+  if (!hasColumn('script_executions', 'triggered_by')) {
+    db.exec("ALTER TABLE script_executions ADD COLUMN triggered_by TEXT DEFAULT 'manual'");
+    console.log('[db] Migrated script_executions: added triggered_by column');
+  }
 
   // Seed scripts if table is empty
   const count = db.prepare('SELECT COUNT(*) as c FROM scripts').get();
@@ -241,20 +253,22 @@ function getScript(id) {
   return db.prepare('SELECT * FROM scripts WHERE id = ?').get(id);
 }
 
-function createScript({ id, name, description, command, destructive }) {
+function createScript({ id, name, description, command, destructive, schedule, scheduleServers }) {
   db.prepare(
-    'INSERT INTO scripts (id, name, description, command, destructive) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, name, description || '', command, destructive ? 1 : 0);
+    'INSERT INTO scripts (id, name, description, command, destructive, schedule, schedule_servers) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(id, name, description || '', command, destructive ? 1 : 0, schedule || null, scheduleServers || '*');
   return getScript(id);
 }
 
-function updateScript(id, { name, description, command, destructive }) {
+function updateScript(id, { name, description, command, destructive, schedule, scheduleServers }) {
   const fields = [];
   const values = [];
   if (name !== undefined) { fields.push('name = ?'); values.push(name); }
   if (description !== undefined) { fields.push('description = ?'); values.push(description); }
   if (command !== undefined) { fields.push('command = ?'); values.push(command); }
   if (destructive !== undefined) { fields.push('destructive = ?'); values.push(destructive ? 1 : 0); }
+  if (schedule !== undefined) { fields.push('schedule = ?'); values.push(schedule || null); }
+  if (scheduleServers !== undefined) { fields.push('schedule_servers = ?'); values.push(scheduleServers || '*'); }
   if (fields.length === 0) return getScript(id);
 
   fields.push("updated_at = datetime('now')");
@@ -442,16 +456,16 @@ function getMetricDetails(server, timestamp) {
 }
 
 // ─── Script Executions ───────────────────────────────────────────────
-function logExecution({ scriptId, server, exitCode, startedAt, durationMs, output }) {
+function logExecution({ scriptId, server, exitCode, startedAt, durationMs, output, triggeredBy }) {
   db.prepare(
-    'INSERT INTO script_executions (script_id, server, exit_code, started_at, duration_ms, output) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(scriptId, server, exitCode, startedAt || new Date().toISOString(), durationMs || 0, truncateOutput(output));
+    'INSERT INTO script_executions (script_id, server, exit_code, started_at, duration_ms, output, triggered_by) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(scriptId, server, exitCode, startedAt || new Date().toISOString(), durationMs || 0, truncateOutput(output), triggeredBy || 'manual');
 }
 
 // Listing omits the (potentially large) output; fetch it per-row with
 // getExecution(id). output_bytes lets the UI show an expand affordance.
 const EXECUTION_LIST_COLS =
-  'id, script_id, server, exit_code, started_at, duration_ms, LENGTH(output) AS output_bytes';
+  'id, script_id, server, exit_code, started_at, duration_ms, triggered_by, LENGTH(output) AS output_bytes';
 
 function getExecutions(server, limit = 50, scriptId = null) {
   const where = [];
@@ -466,6 +480,17 @@ function getExecutions(server, limit = 50, scriptId = null) {
 
 function getExecution(id) {
   return db.prepare('SELECT * FROM script_executions WHERE id = ?').get(id);
+}
+
+// Latest scheduled run per (server, script) — drives the script-failed alert
+function getLastScheduledExecutions() {
+  return db.prepare(`
+    SELECT server, script_id, exit_code, started_at FROM (
+      SELECT server, script_id, exit_code, started_at,
+             ROW_NUMBER() OVER (PARTITION BY server, script_id ORDER BY started_at DESC, id DESC) AS rn
+      FROM script_executions WHERE triggered_by = 'schedule'
+    ) WHERE rn = 1
+  `).all();
 }
 
 // Latest execution per script on a server — powers the last-run badges
@@ -630,6 +655,7 @@ module.exports = {
   getExecutions,
   getExecution,
   getLatestExecutions,
+  getLastScheduledExecutions,
   truncateOutput,
   // Alerts
   openAlert,
