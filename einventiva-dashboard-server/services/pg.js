@@ -20,8 +20,8 @@ async function detectEnvPgUser(alias, containerName) {
 }
 
 // Candidate roles derived from the container name: a replica of a
-// primary initialized with POSTGRES_USER=hashtask_admin is typically
-// named pg-replica-hashtask, so the app name — plus the common
+// primary initialized with POSTGRES_USER=app_admin is typically
+// named pg-replica-app, so the app name — plus the common
 // _admin/_user suffixes — is the best guess.
 function deriveUserCandidates(containerName) {
   const name = containerName.replace(/\.\d+\.[a-z0-9]+$/i, ''); // swarm task suffix
