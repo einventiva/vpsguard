@@ -3,6 +3,7 @@ const db = require('../db');
 const { log, handleError } = require('../services/logger');
 const { executeSSHCommand } = require('../services/ssh');
 const { injectSudoPassword } = require('../services/ssh');
+const { maskSudoPassword } = require('../services/ssh');
 const { isValidCron } = require('../services/scheduler');
 const { SCRIPT_TIMEOUT } = require('../config');
 
@@ -113,8 +114,9 @@ function createRouter(getServers) {
       const serverConfig = SERVERS[serverKey];
       const { password } = req.body;
       const command = injectSudoPassword(scriptRow.command, password);
+      const maskSecret = (text) => (password && text ? String(text).split(password).join('••••') : text);
 
-      log(`Executing script`, { server: serverKey, script, command: command.substring(0, 100) });
+      log(`Executing script`, { server: serverKey, script, command: maskSudoPassword(command).substring(0, 100) });
 
       const startTime = Date.now();
       try {
@@ -126,7 +128,7 @@ function createRouter(getServers) {
           exitCode: 0,
           startedAt: new Date(startTime).toISOString(),
           durationMs: Date.now() - startTime,
-          output,
+          output: maskSecret(output),
         });
 
         res.json({
@@ -134,7 +136,7 @@ function createRouter(getServers) {
           script,
           timestamp: new Date().toISOString(),
           success: true,
-          output,
+          output: maskSecret(output),
           outputLength: output.length
         });
       } catch (execError) {
@@ -146,11 +148,11 @@ function createRouter(getServers) {
           exitCode: typeof execError.code === 'number' ? execError.code : 1,
           startedAt: new Date(startTime).toISOString(),
           durationMs: Date.now() - startTime,
-          output: [
+          output: maskSecret([
             execError.stdout,
             execError.stderr,
             execError.killed ? `\n[dashboard] Timed out after ${Math.round(SCRIPT_TIMEOUT / 1000)}s — the remote command may still be running on the server.\n` : '',
-          ].filter(Boolean).join('') || execError.message,
+          ].filter(Boolean).join('') || execError.message),
         });
         throw execError;
       }
