@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.5.0] — 2026-07-17
+
+#### Added
+- **Scheduled scripts**: any script can carry a 5-field cron `schedule` and a target-server list; a minute-aligned loop runs due scripts over SSH in parallel and persists them in the same execution history (tagged `auto`). Diagnostics stop depending on someone remembering to click them
+- **`script` alert**: when a scheduled script's latest run fails on a server, an alert opens through the standard pipeline (socket, native notification, webhook) and auto-resolves on the next passing run — or within a minute of unscheduling it
+- Editor gains schedule presets (hourly/6h/daily/weekly) and per-server targeting; cards show a schedule badge; cron expressions are validated on save (400 on malformed input)
+- Note: scheduled runs execute without password injection — `sudo` scripts need passwordless sudo on the target servers (the editor warns about this)
+
 ### [1.4.1] — 2026-07-17
 
 #### Fixed
@@ -103,6 +111,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.5.0] — 2026-07-17
+
+#### Agregado
+- **Scripts programados**: cualquier script puede llevar un `schedule` cron de 5 campos y una lista de servidores destino; un loop alineado al minuto ejecuta los scripts due por SSH en paralelo y los persiste en el mismo historial (etiquetados `auto`). Los diagnósticos dejan de depender de que alguien se acuerde de ejecutarlos
+- **Alerta `script`**: cuando la última corrida programada de un script falla en un servidor, se abre una alerta por la tubería estándar (socket, notificación nativa, webhook) y se resuelve sola con la siguiente corrida exitosa — o al minuto de quitarle el schedule
+- El editor gana presets de schedule (hourly/6h/daily/weekly) y selección de servidores destino; las cards muestran badge de schedule; las expresiones cron se validan al guardar (400 si son inválidas)
+- Nota: las corridas programadas ejecutan sin inyección de contraseña — los scripts con `sudo` requieren sudo sin contraseña en los servidores destino (el editor lo advierte)
 
 ### [1.4.1] — 2026-07-17
 

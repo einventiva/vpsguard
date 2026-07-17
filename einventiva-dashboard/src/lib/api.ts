@@ -162,6 +162,8 @@ export const api = {
       description: s.description,
       command: s.command,
       destructive: !!s.destructive,
+      schedule: s.schedule || null,
+      scheduleServers: s.schedule_servers || '*',
       output: '',
       status: 'idle' as const,
       timestamp: new Date().toISOString(),
@@ -174,14 +176,14 @@ export const api = {
     return response.items || []
   },
 
-  async createScript(data: { id: string; name: string; description: string; command: string; destructive?: boolean }): Promise<ScriptItem> {
+  async createScript(data: { id: string; name: string; description: string; command: string; destructive?: boolean; schedule?: string | null; scheduleServers?: string }): Promise<ScriptItem> {
     return fetchApi<ScriptItem>('/scripts', {
       method: 'POST',
       body: JSON.stringify(data),
     })
   },
 
-  async updateScript(id: string, data: { name?: string; description?: string; command?: string; destructive?: boolean }): Promise<ScriptItem> {
+  async updateScript(id: string, data: { name?: string; description?: string; command?: string; destructive?: boolean; schedule?: string | null; scheduleServers?: string }): Promise<ScriptItem> {
     return fetchApi<ScriptItem>(`/scripts/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -214,6 +216,8 @@ export const api = {
           description: '',
           command: scriptId,
           destructive: false,
+          schedule: null,
+          scheduleServers: '*',
           output: response.output || '',
           status: response.success ? 'success' : 'error',
           timestamp: response.timestamp || new Date().toISOString(),

@@ -45,6 +45,10 @@ export interface ScriptResult {
   description: string
   command: string
   destructive: boolean
+  // 5-field cron expression; null = manual only
+  schedule: string | null
+  // '*' = every server, or comma-separated server keys
+  scheduleServers: string
   output: string
   status: 'idle' | 'running' | 'success' | 'error'
   timestamp: string
@@ -60,6 +64,7 @@ export interface ScriptExecution {
   exit_code: number | null
   started_at: string
   duration_ms: number
+  triggered_by?: 'manual' | 'schedule'
   output_bytes: number | null
   output?: string | null
 }
@@ -99,7 +104,7 @@ export interface MetricEntry {
 export interface Alert {
   id: number
   server: string
-  type: 'cpu' | 'memory' | 'disk' | 'offline' | 'disk-eta' | 'cron' | 'pg-connections' | 'pg-replication' | 'inodes' | 'systemd' | 'ssl' | 'flapping'
+  type: 'cpu' | 'memory' | 'disk' | 'offline' | 'disk-eta' | 'cron' | 'pg-connections' | 'pg-replication' | 'inodes' | 'systemd' | 'ssl' | 'flapping' | 'script'
   severity: 'warning' | 'critical'
   message: string
   value: number | null
@@ -300,6 +305,8 @@ export interface ScriptItem {
   description: string
   command: string
   destructive: number
+  schedule: string | null
+  schedule_servers: string
   created_at: string
   updated_at: string
 }
