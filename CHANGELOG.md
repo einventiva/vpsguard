@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.10.0] — 2026-07-17
+
+#### Added
+- **AI interpretation of script output (A4)**: an "Interpretar con IA" button on any script result (live output and expanded history) sends the output to the AI module and renders an actionable verdict inline — summary, severity, key points, and a recommended action — closing the loop when the AI suggests running a diagnostic script (`POST /ai/interpret`, by execution id or inline output; output is masked and truncated before leaving the box). The AI interprets and recommends; the human decides
+
 ### [1.9.0] — 2026-07-17
 
 #### Added
@@ -139,6 +144,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.10.0] — 2026-07-17
+
+#### Agregado
+- **Interpretación IA del output de scripts (A4)**: un botón "Interpretar con IA" en cualquier resultado de script (output en vivo e historial expandido) manda el output al módulo de IA y renderiza un veredicto accionable inline — resumen, severidad, puntos clave y acción recomendada — cerrando el ciclo cuando la IA sugiere correr un script de diagnóstico (`POST /ai/interpret`, por id de ejecución u output inline; el output se enmascara y trunca antes de salir del servidor). La IA interpreta y recomienda; el humano decide
 
 ### [1.9.0] — 2026-07-17
 

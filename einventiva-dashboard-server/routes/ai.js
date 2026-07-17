@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { handleError } = require('../services/logger');
-const { runAnalysis, publicConfig, toClientShape, MODEL_SETTING_KEY } = require('../services/aiAnalysis');
+const { runAnalysis, publicConfig, toClientShape, interpretOutput, MODEL_SETTING_KEY } = require('../services/aiAnalysis');
 const { afterAiAnalysis } = require('../services/backgroundJobs');
 const { listModels } = require('../services/aiProviders');
 const { AI_PROVIDER, AI_BASE_URL, AI_API_KEY, AI_TIMEOUT_MS } = require('../config');
@@ -63,6 +63,37 @@ function createRouter(getServers, io) {
         return res.status(409).json({ error: error.message });
       }
       handleError(res, error, 'AI analysis failed');
+    }
+  });
+
+  // Interpret a script's output into an actionable verdict. Accepts an
+  // execution id (server-side output, no client round-trip) or inline
+  // { script, server, output }.
+  let lastInterpretAt = 0;
+  router.post('/ai/interpret', async (req, res) => {
+    try {
+      if (Date.now() - lastInterpretAt < 5000) {
+        return res.status(429).json({ error: 'Rate limited — wait a few seconds between interpretations' });
+      }
+      let { script, server, output, context, executionId } = req.body || {};
+      if (executionId != null) {
+        const exec = db.getExecution(parseInt(executionId));
+        if (!exec) return res.status(404).json({ error: `Execution '${executionId}' not found` });
+        script = script || exec.script_id;
+        server = server || exec.server;
+        output = exec.output;
+      }
+      if (!output || !String(output).trim()) {
+        return res.status(400).json({ error: 'No output to interpret' });
+      }
+      lastInterpretAt = Date.now();
+      const result = await interpretOutput({ script, server, output, context });
+      res.json(result);
+    } catch (error) {
+      if (/not configured/.test(error.message)) {
+        return res.status(400).json({ error: error.message });
+      }
+      handleError(res, error, 'AI interpretation failed');
     }
   });
 

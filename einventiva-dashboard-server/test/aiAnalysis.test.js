@@ -1,6 +1,6 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
-const { parseAnalysis, parseFindings, groupFindingsForAlerts } = require('../services/aiAnalysis');
+const { parseAnalysis, parseFindings, groupFindingsForAlerts, parseInterpretation } = require('../services/aiAnalysis');
 const { buildOpenAIRequest, buildAnthropicRequest, extractOpenAIResponse, extractAnthropicResponse } = require('../services/aiProviders');
 const { compressRollup, formatServerStatus, detectMaintenanceWindows } = require('../services/aiSample');
 
@@ -73,6 +73,35 @@ describe('parseAnalysis actionPlan + trend (A3)', () => {
   test('parseFindings alias still works', () => {
     assert.equal(typeof parseFindings, 'function');
     assert.equal(parseFindings('{"summary":"ok","findings":[]}').summary, 'ok');
+  });
+});
+
+describe('parseInterpretation (A4)', () => {
+  test('parses verdict, normalizes severity, caps points', () => {
+    const payload = JSON.stringify({
+      summary: 'Todo sano.',
+      severity: 'ok',
+      points: ['servicio-web usa 10% CPU', 'db-cache al 3% de memoria', 'sin contenedores bajo presión'],
+      action: 'Ninguna — todo en orden.',
+    });
+    const r = parseInterpretation(payload);
+    assert.equal(r.summary, 'Todo sano.');
+    assert.equal(r.severity, 'ok');
+    assert.equal(r.points.length, 3);
+    assert.equal(r.action, 'Ninguna — todo en orden.');
+  });
+
+  test('unwraps fences, invalid severity → info, drops non-string points', () => {
+    const wrapped = '```json\n' + JSON.stringify({
+      summary: 'x', severity: 'panic', points: ['ok', 42, null, 'dos'], action: '',
+    }) + '\n```';
+    const r = parseInterpretation(wrapped);
+    assert.equal(r.severity, 'info');
+    assert.deepStrictEqual(r.points, ['ok', 'dos']);
+  });
+
+  test('throws when no JSON present', () => {
+    assert.throws(() => parseInterpretation('cannot parse this'));
   });
 });
 
