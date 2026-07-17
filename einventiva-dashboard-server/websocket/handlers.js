@@ -42,6 +42,9 @@ function registerHandlers(io, getServers) {
       const serverConfig = SERVERS[serverKey];
       const command = injectSudoPassword(scriptRow.command, password);
       const sshCommand = `ssh ${getMuxOpts(serverConfig.alias)} ${serverConfig.alias} "${command.replace(/"/g, '\\"')}"`;
+      // Defense in depth: whatever the remote prints, the password never
+      // reaches the live stream or the stored output
+      const maskSecret = (text) => (password ? text.split(password).join('••••') : text);
       log('Streaming script execution', { server: serverKey, script });
 
       socket.emit('script:start', { script, server: serverKey });
@@ -61,13 +64,13 @@ function registerHandlers(io, getServers) {
       };
 
       child.stdout.on('data', (chunk) => {
-        const text = chunk.toString();
+        const text = maskSecret(chunk.toString());
         appendOutput(text);
         socket.emit('script:output', { stream: 'stdout', data: text, script, server: serverKey });
       });
 
       child.stderr.on('data', (chunk) => {
-        const text = chunk.toString();
+        const text = maskSecret(chunk.toString());
         if (isSSHWarning(text)) return;
         appendOutput(text);
         socket.emit('script:output', { stream: 'stderr', data: text, script, server: serverKey });

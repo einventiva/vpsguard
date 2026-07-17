@@ -26,7 +26,17 @@ function filterWarnings(text) {
 
 function injectSudoPassword(command, password) {
   if (!password || !command.includes('sudo')) return command;
-  return command.replace(/sudo /g, `echo '${password.replace(/'/g, "'\\''")}' | sudo -S `);
+  const escaped = password.replace(/'/g, "'\\''");
+  // Only wrap `sudo` at a command position (start of command, or right
+  // after ; & | ( ). A blind global replace also rewrote the word
+  // "sudo" inside quoted strings — e.g. `echo "run: sudo foo"` — which
+  // printed the password verbatim in the script output.
+  return command.replace(/(^|[;&|(]\s*)sudo\s+/g, `$1echo '${escaped}' | sudo -S `);
+}
+
+// For log lines: hide the password in an injected command
+function maskSudoPassword(command) {
+  return String(command).replace(/echo '(?:[^']|'\\'')*' \| sudo -S/g, "echo '****' | sudo -S");
 }
 
 // ─── SSH Multiplexing (ControlMaster) ──────────────────────────────
@@ -53,7 +63,7 @@ async function executeSSHCommand(serverAlias, command, timeout = COMMAND_TIMEOUT
   try {
     const muxOpts = getMuxOpts(serverAlias);
     const sshCommand = `ssh ${muxOpts} ${serverAlias} "${command}"`;
-    log(`Executing SSH command`, { server: serverAlias, command: command.substring(0, 100) });
+    log(`Executing SSH command`, { server: serverAlias, command: maskSudoPassword(command).substring(0, 100) });
     const { stdout, stderr } = await execPromise(sshCommand, { timeout });
     if (stderr && !stderr.includes('Warning')) {
       log(`SSH command stderr`, { server: serverAlias, stderr: stderr.substring(0, 200) });
@@ -82,4 +92,4 @@ function closeAllMuxConnections() {
   } catch (_) { /* ignore cleanup errors */ }
 }
 
-module.exports = { executeSSHCommand, filterWarnings, isSSHWarning, injectSudoPassword, getMuxOpts, closeMuxConnection, closeAllMuxConnections, exec };
+module.exports = { executeSSHCommand, filterWarnings, isSSHWarning, injectSudoPassword, maskSudoPassword, getMuxOpts, closeMuxConnection, closeAllMuxConnections, exec };
