@@ -9,6 +9,7 @@ import type {
   ServerStatus,
   DockerContainer,
   ScriptResult,
+  ScriptExecution,
   ServerData,
   ServerAlias,
   ApiResponse,
@@ -160,6 +161,7 @@ export const api = {
       name: s.name,
       description: s.description,
       command: s.command,
+      destructive: !!s.destructive,
       output: '',
       status: 'idle' as const,
       timestamp: new Date().toISOString(),
@@ -172,14 +174,14 @@ export const api = {
     return response.items || []
   },
 
-  async createScript(data: { id: string; name: string; description: string; command: string }): Promise<ScriptItem> {
+  async createScript(data: { id: string; name: string; description: string; command: string; destructive?: boolean }): Promise<ScriptItem> {
     return fetchApi<ScriptItem>('/scripts', {
       method: 'POST',
       body: JSON.stringify(data),
     })
   },
 
-  async updateScript(id: string, data: { name?: string; description?: string; command?: string }): Promise<ScriptItem> {
+  async updateScript(id: string, data: { name?: string; description?: string; command?: string; destructive?: boolean }): Promise<ScriptItem> {
     return fetchApi<ScriptItem>(`/scripts/${id}`, {
       method: 'PUT',
       body: JSON.stringify(data),
@@ -211,6 +213,7 @@ export const api = {
           name: scriptId,
           description: '',
           command: scriptId,
+          destructive: false,
           output: response.output || '',
           status: response.success ? 'success' : 'error',
           timestamp: response.timestamp || new Date().toISOString(),
@@ -225,11 +228,26 @@ export const api = {
     }
   },
 
+  // Persisted execution history (list rows omit output)
   async getScriptHistory(
     server: ServerAlias,
-    limit: number = 10
-  ): Promise<ScriptResult[]> {
-    return []
+    limit: number = 20
+  ): Promise<ScriptExecution[]> {
+    const response = await fetchApi<any>(`/executions?server=${server}&limit=${limit}`)
+    return response.executions || []
+  },
+
+  // Full execution record including stored output
+  async getExecution(id: number): Promise<ScriptExecution> {
+    return fetchApi<ScriptExecution>(`/executions/${id}`)
+  },
+
+  // Latest execution per script — powers the last-run badges
+  async getLatestExecutions(server: ServerAlias): Promise<Record<string, ScriptExecution>> {
+    const response = await fetchApi<any>(`/executions/latest?server=${server}`)
+    const map: Record<string, ScriptExecution> = {}
+    for (const e of response.executions || []) map[e.script_id] = e
+    return map
   },
 
   // History endpoints

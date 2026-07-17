@@ -114,11 +114,30 @@ function createRouter(getServers) {
     }
   });
 
-  // Script executions history
+  // Script executions history (list omits output; see /executions/:id)
   router.get('/executions', (req, res) => {
-    const { server, limit } = req.query;
-    const executions = db.getExecutions(server || null, parseInt(limit) || 50);
+    const { server, script, limit } = req.query;
+    const executions = db.getExecutions(server || null, parseInt(limit) || 50, script || null);
     res.json({ executions });
+  });
+
+  // Latest execution per script on a server (last-run badges)
+  router.get('/executions/latest', (req, res) => {
+    const { server } = req.query;
+    if (!server) {
+      return res.status(400).json({ error: 'Query parameter "server" is required' });
+    }
+    res.json({ server, executions: db.getLatestExecutions(server) });
+  });
+
+  // Full execution record including stored output
+  router.get('/executions/:id', (req, res) => {
+    const id = parseInt(req.params.id);
+    const execution = Number.isInteger(id) ? db.getExecution(id) : undefined;
+    if (!execution) {
+      return res.status(404).json({ error: `Execution '${req.params.id}' not found` });
+    }
+    res.json(execution);
   });
 
   return router;
