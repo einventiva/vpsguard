@@ -19,7 +19,7 @@ Monitor your VPS fleet from a single dashboard: live CPU, memory, disk metrics, 
 - **Script Execution** — Create, edit, and run shell scripts remotely with live terminal output streaming, persistent execution history with stored output, last-run badges per script, fleet-wide "Run on all" with side-by-side panes, and a typed-confirmation guard for destructive scripts
 - **Scheduled Scripts** — Give any script a cron schedule and target servers; it runs automatically, lands in the same history, and a `script` alert fires when a scheduled run fails (auto-resolves on the next passing run)
 - **Alert → Script Bridge** — Tag scripts with the alert types they remediate; active alerts show one-click shortcuts that open the script with the affected server preselected
-- **AI Analysis (Prevention)** — LLM analysis of a compact fleet snapshot via any OpenAI-compatible endpoint (LiteLLM, Ollama, OpenAI, xAI) or the native Anthropic API: executive summary plus prioritized findings with actions and suggested scripts. Run on demand or on a cron schedule (`AI_ANALYSIS_SCHEDULE`), with desktop notifications and optional per-server `ai` alerts (`AI_OPEN_ALERTS`)
+- **AI Analysis (Prevention)** — LLM analysis of a compact, pre-aggregated fleet snapshot (status, alerts, trends, projections, PostgreSQL — never raw script outputs) via any OpenAI-compatible endpoint (LiteLLM, Ollama, OpenAI, xAI) or the native Anthropic API. Returns an executive summary, prioritized findings tagged by evolution vs the previous run (worse/improved/new/persisting), and a consolidated **action plan** grouped by horizon (now / this week / watch) with step dependencies and suggested scripts. Runs on demand or on a cron schedule (`AI_ANALYSIS_SCHEDULE`), with desktop notifications and optional per-server `ai` alerts (`AI_OPEN_ALERTS`). Model is selectable in the UI (persisted server-side); planned reboots are recognized as maintenance, not incidents. Secrets stay in `.env`; the AI recommends — it never executes anything
 - **Crontab Manager** — View, create, toggle, and delete cron jobs with preset schedules and human-readable descriptions
 - **Log Viewer** — Browse container logs per server with auto-scroll and copy support
 - **Server Management** — Full CRUD for servers with SSH connectivity testing
@@ -61,6 +61,7 @@ vpsguard/
 │   │   │   ├── PostgresPanel.tsx        # PostgreSQL monitoring
 │   │   │   ├── PgTrends.tsx             # Per-container PG trend charts
 │   │   │   ├── AlertsPanel.tsx          # Alert center (active/history + ack)
+│   │   │   ├── PreventionPanel.tsx      # AI analysis: summary, action plan, findings
 │   │   │   ├── ThresholdsEditor.tsx     # Per-server threshold editor
 │   │   │   ├── ScriptsPanel.tsx         # Script CRUD + execution
 │   │   │   ├── CrontabPanel.tsx         # Crontab manager (+ last run/overdue)
@@ -101,7 +102,8 @@ vpsguard/
 │   │   ├── scripts.js                   # Script CRUD
 │   │   ├── servers.js                   # Server CRUD + SSH test
 │   │   ├── crontab.js                   # Crontab CRUD + execution watch
-│   │   └── history.js                   # Metrics history (ranges) + drill-down
+│   │   ├── history.js                   # Metrics history (ranges) + drill-down
+│   │   └── ai.js                        # AI analysis, config, model selection
 │   ├── services/
 │   │   ├── ssh.js                       # SSH execution (ControlMaster mux)
 │   │   ├── metrics.js                   # Metrics parsing + collection
@@ -116,7 +118,11 @@ vpsguard/
 │   │   ├── pgHistory.js                 # PostgreSQL 5-min sampler
 │   │   ├── notify.js                    # Alert webhook delivery
 │   │   ├── crontab.js                   # Crontab file parsing
-│   │   ├── backgroundJobs.js            # Loops: metrics, rollups, prune, PG, checks
+│   │   ├── scheduler.js                 # Cron parser for scheduled scripts + AI
+│   │   ├── aiSample.js                  # Compact fleet snapshot for AI analysis
+│   │   ├── aiProviders.js              # LLM client (OpenAI-compatible + Anthropic)
+│   │   ├── aiAnalysis.js                # AI orchestration: prompt, parse, persist
+│   │   ├── backgroundJobs.js            # Loops: metrics, rollups, prune, PG, checks, AI
 │   │   └── logger.js                    # Logging utility
 │   ├── websocket/
 │   │   └── handlers.js                  # Script exec streaming, wizard
@@ -281,9 +287,12 @@ You can create, edit, and delete scripts from the dashboard UI.
 | PUT | `/api/scripts/:id` | Update script |
 | DELETE | `/api/scripts/:id` | Delete script |
 | GET | `/api/executions` | Script execution history (filter by `server`, `script`) |
-| POST | `/api/ai/analyze` | Run an AI fleet analysis (rate limited) |
+| POST | `/api/ai/analyze` | Run an AI fleet analysis (rate limited; optional one-off model) |
 | GET | `/api/ai/analyses` | AI analysis history |
+| GET | `/api/ai/analyses/:id` | Full analysis including its input snapshot |
 | GET | `/api/ai/config` | AI module status (no secrets) |
+| GET | `/api/ai/models` | Models the configured provider/key allows |
+| PUT | `/api/ai/model` | Persist the selected model (empty = env default) |
 | GET | `/api/executions/latest` | Latest execution per script for a server |
 | GET | `/api/executions/:id` | Full execution record with stored output |
 | GET | `/api/crontab/:server` | List cron jobs |
@@ -333,7 +342,7 @@ MIT
 - **Ejecución de Scripts** — Crea, edita y ejecuta scripts de shell remotamente con salida en terminal en tiempo real, historial persistente de ejecuciones con output almacenado, badges de última ejecución por script, "Run on all" para toda la flota con paneles lado a lado, y guarda de confirmación tipeada para scripts destructivos
 - **Scripts Programados** — Dale a cualquier script un schedule cron y servidores destino; corre automáticamente, cae en el mismo historial, y una alerta `script` se dispara cuando una corrida programada falla (se resuelve sola con la siguiente corrida exitosa)
 - **Puente Alertas → Scripts** — Etiqueta scripts con los tipos de alerta que remedian; las alertas activas muestran accesos de un clic que abren el script con el servidor afectado preseleccionado
-- **Análisis con IA (Prevención)** — Análisis LLM de un snapshot compacto de la flota vía cualquier endpoint OpenAI-compatible (LiteLLM, Ollama, OpenAI, xAI) o la API nativa de Anthropic: resumen ejecutivo más hallazgos priorizados con acciones y scripts sugeridos. Bajo demanda o programado por cron (`AI_ANALYSIS_SCHEDULE`), con notificaciones de escritorio y alertas `ai` por servidor opcionales (`AI_OPEN_ALERTS`)
+- **Análisis con IA (Prevención)** — Análisis LLM de un snapshot compacto y pre-agregado de la flota (estado, alertas, tendencias, proyecciones, PostgreSQL — nunca outputs crudos de scripts) vía cualquier endpoint OpenAI-compatible (LiteLLM, Ollama, OpenAI, xAI) o la API nativa de Anthropic. Devuelve un resumen ejecutivo, hallazgos priorizados etiquetados por evolución vs la corrida anterior (empeoró/mejoró/nuevo/persiste), y un **plan de acción** consolidado agrupado por horizonte (ahora / esta semana / monitorear) con dependencias entre pasos y scripts sugeridos. Bajo demanda o programado por cron (`AI_ANALYSIS_SCHEDULE`), con notificaciones de escritorio y alertas `ai` por servidor opcionales (`AI_OPEN_ALERTS`). El modelo se elige en la UI (persistido en el backend); los reboots planeados se reconocen como mantenimiento, no incidentes. Los secretos viven en `.env`; la IA recomienda — nunca ejecuta nada
 - **Gestor de Crontab** — Ver, crear, activar/desactivar y eliminar cron jobs con presets y descripciones legibles
 - **Visor de Logs** — Navega logs de containers por servidor con auto-scroll y copia
 - **Gestión de Servidores** — CRUD completo con prueba de conectividad SSH
@@ -375,6 +384,7 @@ vpsguard/
 │   │   │   ├── PostgresPanel.tsx        # Monitoreo PostgreSQL
 │   │   │   ├── PgTrends.tsx             # Gráficas de tendencia PG por container
 │   │   │   ├── AlertsPanel.tsx          # Centro de alertas (activas/historial + ack)
+│   │   │   ├── PreventionPanel.tsx      # Análisis IA: resumen, plan de acción, hallazgos
 │   │   │   ├── ThresholdsEditor.tsx     # Editor de umbrales por servidor
 │   │   │   ├── ScriptsPanel.tsx         # CRUD de scripts + ejecución
 │   │   │   ├── CrontabPanel.tsx         # Gestor de crontab (+ last run/overdue)
@@ -415,7 +425,8 @@ vpsguard/
 │   │   ├── scripts.js                   # CRUD de scripts
 │   │   ├── servers.js                   # CRUD de servidores + test SSH
 │   │   ├── crontab.js                   # CRUD de crontab + vigilancia de ejecución
-│   │   └── history.js                   # Historial de métricas (rangos) + drill-down
+│   │   ├── history.js                   # Historial de métricas (rangos) + drill-down
+│   │   └── ai.js                        # Análisis IA, config, selección de modelo
 │   ├── services/
 │   │   ├── ssh.js                       # Ejecución SSH (multiplexing ControlMaster)
 │   │   ├── metrics.js                   # Parsing + recolección de métricas
@@ -430,7 +441,11 @@ vpsguard/
 │   │   ├── pgHistory.js                 # Muestreador PostgreSQL cada 5 min
 │   │   ├── notify.js                    # Entrega de webhook de alertas
 │   │   ├── crontab.js                   # Parsing de archivos crontab
-│   │   ├── backgroundJobs.js            # Loops: métricas, rollups, prune, PG, chequeos
+│   │   ├── scheduler.js                 # Parser cron para scripts programados + IA
+│   │   ├── aiSample.js                  # Snapshot compacto de la flota para IA
+│   │   ├── aiProviders.js              # Cliente LLM (OpenAI-compatible + Anthropic)
+│   │   ├── aiAnalysis.js                # Orquestación IA: prompt, parseo, persistencia
+│   │   ├── backgroundJobs.js            # Loops: métricas, rollups, prune, PG, chequeos, IA
 │   │   └── logger.js                    # Utilidad de logging
 │   ├── websocket/
 │   │   └── handlers.js                  # Streaming de scripts, wizard
@@ -595,9 +610,12 @@ Puedes crear, editar y eliminar scripts desde la interfaz del dashboard.
 | PUT | `/api/scripts/:id` | Actualizar script |
 | DELETE | `/api/scripts/:id` | Eliminar script |
 | GET | `/api/executions` | Historial de ejecuciones (filtros `server`, `script`) |
-| POST | `/api/ai/analyze` | Ejecuta un análisis IA de la flota (rate limited) |
+| POST | `/api/ai/analyze` | Ejecuta un análisis IA de la flota (rate limited; modelo puntual opcional) |
 | GET | `/api/ai/analyses` | Historial de análisis IA |
+| GET | `/api/ai/analyses/:id` | Análisis completo incluyendo su snapshot de entrada |
 | GET | `/api/ai/config` | Estado del módulo IA (sin secretos) |
+| GET | `/api/ai/models` | Modelos que el proveedor/clave configurados permiten |
+| PUT | `/api/ai/model` | Persiste el modelo elegido (vacío = default del env) |
 | GET | `/api/executions/latest` | Última ejecución por script para un servidor |
 | GET | `/api/executions/:id` | Registro completo con el output almacenado |
 | GET | `/api/crontab/:server` | Listar cron jobs |
