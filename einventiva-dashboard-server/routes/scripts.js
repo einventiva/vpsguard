@@ -128,7 +128,11 @@ function createRouter(getServers) {
           exitCode: typeof execError.code === 'number' ? execError.code : 1,
           startedAt: new Date(startTime).toISOString(),
           durationMs: Date.now() - startTime,
-          output: [execError.stdout, execError.stderr].filter(Boolean).join('') || execError.message,
+          output: [
+            execError.stdout,
+            execError.stderr,
+            execError.killed ? `\n[dashboard] Timed out after ${Math.round(SCRIPT_TIMEOUT / 1000)}s — the remote command may still be running on the server.\n` : '',
+          ].filter(Boolean).join('') || execError.message,
         });
         throw execError;
       }
