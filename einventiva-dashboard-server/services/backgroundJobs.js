@@ -8,12 +8,13 @@ const { resolveThresholds } = require('./thresholds');
 const { computeProjections } = require('./projections');
 const { getCronStatus } = require('./cronWatch');
 const { samplePgServer } = require('./pgHistory');
+const { fetchCertificates } = require('./sslCheck');
 const { sendWebhook } = require('./notify');
 const { setCache } = require('./cache');
 const {
   METRICS_INTERVAL, PRUNE_INTERVAL, PRUNE_STARTUP_DELAY, PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS,
   ROLLUP_INTERVAL, ROLLUP_STARTUP_DELAY, ROLLUP_KEEP_DAYS,
-  SLOW_CHECK_INTERVAL, SLOW_CHECK_STARTUP_DELAY, DISK_ETA_ALERT_DAYS,
+  SLOW_CHECK_INTERVAL, SLOW_CHECK_STARTUP_DELAY, DISK_ETA_ALERT_DAYS, SSL_ALERT_DAYS,
   PG_SAMPLE_INTERVAL, PG_SAMPLE_STARTUP_DELAY, PG_KEEP_DAYS, PG_CONN_ALERT_PCT,
   ALERT_SAMPLES_TO_OPEN, ALERT_SAMPLES_TO_RESOLVE,
 } = require('../config');
@@ -27,7 +28,11 @@ async function fetchAllServerStatus(getServers) {
   const results = await Promise.allSettled(
     entries.map(async ([key, svr]) => {
       try {
+        // Round-trip time of the metrics command doubles as an SSH
+        // latency signal — network/load degradation shows here first
+        const t0 = Date.now();
         const output = await executeSSHCommand(svr.alias, METRICS_COMMAND);
+        const latencyMs = Date.now() - t0;
         return {
           key,
           data: {
@@ -35,6 +40,7 @@ async function fetchAllServerStatus(getServers) {
             alias: svr.alias,
             status: 'connected',
             timestamp: new Date().toISOString(),
+            latencyMs,
             metrics: parseSystemMetrics(output)
           }
         };
@@ -210,6 +216,24 @@ async function runSlowChecks(io, getServers) {
       });
     } catch (e) {
       log('Disk ETA check failed', { server: key, error: e.message });
+    }
+
+    // SSL certificate expiry alert (unknown = no certs found or no
+    // passwordless sudo — stays silent)
+    try {
+      const certs = await fetchCertificates(svr.alias);
+      const expiring = certs.filter(c => c.daysLeft <= SSL_ALERT_DAYS);
+      transitionAlert(io, {
+        server: key,
+        type: 'ssl',
+        active: expiring.length > 0,
+        severity: expiring.some(c => c.daysLeft <= 7) ? 'critical' : 'warning',
+        message: `${svr.displayName}: SSL certificate(s) expiring: ${expiring.map(c => `${c.name} (${c.daysLeft}d)`).join(', ')}`,
+        value: expiring.length > 0 ? Math.min(...expiring.map(c => c.daysLeft)) : null,
+        threshold: SSL_ALERT_DAYS,
+      });
+    } catch (e) {
+      log('SSL check failed', { server: key, error: e.message });
     }
 
     // Overdue cron alert

@@ -2,7 +2,7 @@ import type { ServerStatus, Thresholds, ServerProjection } from '@/types'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Activity, HardDrive, Zap, TrendingUp } from 'lucide-react'
+import { Activity, HardDrive, Zap, TrendingUp, Wifi, AlertTriangle, RotateCcw } from 'lucide-react'
 import { formatUptime, getStatusColor, metricLevel, DEFAULT_THRESHOLDS } from '@/lib/formatters'
 
 interface ServerCardProps {
@@ -20,6 +20,14 @@ function diskEtaColor(etaDays: number): string {
   if (etaDays < 14) return 'text-red-400'
   if (etaDays < 30) return 'text-amber-400'
   return 'text-zinc-500'
+}
+
+// The measurement includes the metrics command itself (top -bn1 alone
+// takes ~2s), so the healthy baseline is 2-3s — color on deviation
+function latencyColor(ms: number): string {
+  if (ms > 10000) return 'text-red-400'
+  if (ms > 6000) return 'text-amber-400'
+  return 'text-zinc-200'
 }
 
 export function ServerCard({ server, title, thresholds = DEFAULT_THRESHOLDS, projection, onClick }: ServerCardProps) {
@@ -158,12 +166,21 @@ export function ServerCard({ server, title, thresholds = DEFAULT_THRESHOLDS, pro
           </div>
         </div>
 
-        {/* Load Average */}
+        {/* Load Average + SSH latency */}
         <div className="pt-2 border-t border-zinc-700">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Zap className="w-4 h-4 text-zinc-400" />
               <span className="text-sm text-zinc-400">Load Avg</span>
+              {server.ssh_latency_ms != null && (
+                <span
+                  className={`flex items-center gap-1 text-xs font-mono ${latencyColor(server.ssh_latency_ms)}`}
+                  title="SSH round-trip time of the metrics collection"
+                >
+                  <Wifi className="w-3 h-3 text-zinc-500" />
+                  {server.ssh_latency_ms < 1000 ? `${server.ssh_latency_ms}ms` : `${(server.ssh_latency_ms / 1000).toFixed(1)}s`}
+                </span>
+              )}
             </div>
             <Tooltip>
               <TooltipTrigger className="text-sm font-mono text-zinc-200">
@@ -189,6 +206,32 @@ export function ServerCard({ server, title, thresholds = DEFAULT_THRESHOLDS, pro
             {server.container_count} running
           </Badge>
         </div>
+
+        {/* Signal chips — only shown when something needs attention */}
+        {(server.reboot_required || server.failed_units.length > 0 || server.swap_percent > 50 || server.inodes_percent > 80) && (
+          <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-zinc-700">
+            {server.reboot_required && (
+              <span className="flex items-center gap-1 text-[10px] text-amber-400 bg-amber-900/20 border border-amber-800/50 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider" title="Pending updates require a reboot">
+                <RotateCcw className="w-3 h-3" /> Reboot required
+              </span>
+            )}
+            {server.failed_units.length > 0 && (
+              <span className="flex items-center gap-1 text-[10px] text-red-400 bg-red-900/20 border border-red-800/50 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider" title={server.failed_units.join(', ')}>
+                <AlertTriangle className="w-3 h-3" /> {server.failed_units.length} failed unit{server.failed_units.length !== 1 ? 's' : ''}
+              </span>
+            )}
+            {server.swap_percent > 50 && (
+              <span className="text-[10px] text-amber-400 bg-amber-900/20 border border-amber-800/50 px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider" title="Sustained swap usage means real memory pressure">
+                Swap {server.swap_percent.toFixed(0)}%
+              </span>
+            )}
+            {server.inodes_percent > 80 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wider border ${server.inodes_percent > 90 ? 'text-red-400 bg-red-900/20 border-red-800/50' : 'text-amber-400 bg-amber-900/20 border-amber-800/50'}`} title="Inode usage — a disk can fill on inodes with free space left">
+                Inodes {server.inodes_percent}%
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </Card>
   )

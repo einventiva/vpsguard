@@ -43,6 +43,9 @@ const TYPE_LABELS: Record<Alert['type'], string> = {
   'disk-eta': 'DISK ETA',
   cron: 'CRON',
   'pg-connections': 'PG CONN',
+  inodes: 'INODES',
+  systemd: 'SYSTEMD',
+  ssl: 'SSL',
 }
 
 function AlertRow({ alert, serverName, onAck }: { alert: Alert; serverName: string; onAck: (id: number) => void }) {

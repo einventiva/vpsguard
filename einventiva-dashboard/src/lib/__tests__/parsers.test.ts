@@ -124,6 +124,38 @@ describe('transformServerStatus', () => {
     expect(result.uptime_seconds).toBe(10 * 86400 + 5 * 3600 + 30 * 60)
   })
 
+  it('transforms the new signals (swap, inodes, failed units, reboot, latency)', () => {
+    const data = {
+      name: 'Production',
+      alias: 'prod',
+      status: 'connected',
+      latencyMs: 850,
+      metrics: {
+        memory: { total: 8000, used: 4000, swapTotal: 2000, swapUsed: 500 },
+        inodes: { percentUsed: '93%' },
+        failedUnits: ['nginx.service'],
+        rebootRequired: true,
+      },
+    }
+    const result = transformServerStatus(data, 'prod')
+
+    expect(result.swap_percent).toBe(25)
+    expect(result.inodes_percent).toBe(93)
+    expect(result.failed_units).toEqual(['nginx.service'])
+    expect(result.reboot_required).toBe(true)
+    expect(result.ssh_latency_ms).toBe(850)
+  })
+
+  it('defaults new signals when absent (older backend)', () => {
+    const result = transformServerStatus({ name: 'Test', status: 'connected' }, 'test')
+
+    expect(result.swap_percent).toBe(0)
+    expect(result.inodes_percent).toBe(0)
+    expect(result.failed_units).toEqual([])
+    expect(result.reboot_required).toBe(false)
+    expect(result.ssh_latency_ms).toBe(null)
+  })
+
   it('handles error/disconnected server', () => {
     const data = { status: 'error', metrics: {} }
     const result = transformServerStatus(data, 'down')
