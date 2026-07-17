@@ -69,9 +69,11 @@ function App() {
 
   // Alert → script bridge: jump to the Scripts tab with a script and
   // target server preselected (suggestion buttons on alert rows)
-  const [scriptTarget, setScriptTarget] = useState<{ script: string; server: string } | null>(null)
-  const openScript = (script: string, server: string) => {
-    setScriptTarget({ script, server })
+  // `context` carries WHY the script was suggested (the finding/step/alert)
+  // so a later AI interpretation reconciles with it instead of contradicting
+  const [scriptTarget, setScriptTarget] = useState<{ script: string; server: string; context?: string } | null>(null)
+  const openScript = (script: string, server: string, context?: string) => {
+    setScriptTarget({ script, server, context })
     setActiveTab('scripts')
   }
 

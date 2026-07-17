@@ -14,7 +14,7 @@ interface AlertsPanelProps {
   thresholdsApi: UseThresholdsReturn
   servers: Record<string, ServerInfo>
   // Alert → script bridge: open the Scripts tab with script + server preselected
-  onOpenScript?: (script: string, server: string) => void
+  onOpenScript?: (script: string, server: string, context?: string) => void
 }
 
 type FilterType = 'active' | 'all'
@@ -60,7 +60,7 @@ function AlertRow({ alert, serverName, onAck, suggestions, onOpenScript }: {
   serverName: string
   onAck: (id: number) => void
   suggestions: ScriptResult[]
-  onOpenScript?: (script: string, server: string) => void
+  onOpenScript?: (script: string, server: string, context?: string) => void
 }) {
   const active = !alert.resolved_at
   const Icon = active
@@ -88,7 +88,7 @@ function AlertRow({ alert, serverName, onAck, suggestions, onOpenScript }: {
             {suggestions.map(s => (
               <button
                 key={s.id}
-                onClick={() => onOpenScript(s.id, alert.server)}
+                onClick={() => onOpenScript(s.id, alert.server, `Este script se sugirió para la alerta ${alert.type}: "${alert.message}".`)}
                 title={`Open ${s.name} targeting ${serverName}`}
                 className={`flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border font-mono transition-colors ${s.destructive
                   ? 'border-red-900/70 text-red-400 hover:bg-red-900/20'

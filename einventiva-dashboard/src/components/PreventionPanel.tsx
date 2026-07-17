@@ -35,7 +35,7 @@ import {
 
 interface PreventionPanelProps {
   servers: Record<string, ServerInfo>
-  onOpenScript?: (script: string, server: string) => void
+  onOpenScript?: (script: string, server: string, context?: string) => void
 }
 
 const TREND_STYLE: Record<NonNullable<AiFinding['trend']>, { label: string; icon: typeof TrendingUp; className: string }> = {
@@ -60,7 +60,7 @@ const SEVERITY_STYLE: Record<AiFinding['severity'], { icon: typeof Info; color: 
 function FindingRow({ finding, serverName, onOpenScript }: {
   finding: AiFinding
   serverName: string
-  onOpenScript?: (script: string, server: string) => void
+  onOpenScript?: (script: string, server: string, context?: string) => void
 }) {
   const style = SEVERITY_STYLE[finding.severity]
   const Icon = style.icon
@@ -91,7 +91,7 @@ function FindingRow({ finding, serverName, onOpenScript }: {
         )}
         {finding.script && onOpenScript && (
           <button
-            onClick={() => onOpenScript(finding.script!, finding.server)}
+            onClick={() => onOpenScript(finding.script!, finding.server, `Este script se sugirió para el hallazgo "${finding.title}"${finding.action ? ` — acción recomendada: ${finding.action}` : ''}.`)}
             className="flex items-center gap-1 mt-2 text-[11px] px-1.5 py-0.5 rounded border font-mono border-zinc-700 text-blue-400 hover:bg-blue-900/20 hover:border-blue-800 transition-colors"
             title={`Abrir ${finding.script} apuntando a ${serverName}`}
           >
@@ -107,7 +107,7 @@ function FindingRow({ finding, serverName, onOpenScript }: {
 function ActionPlan({ steps, serverName, onOpenScript }: {
   steps: AiActionStep[]
   serverName: (key: string) => string
-  onOpenScript?: (script: string, server: string) => void
+  onOpenScript?: (script: string, server: string, context?: string) => void
 }) {
   const horizons: AiActionStep['horizon'][] = ['now', 'week', 'watch']
   return (
@@ -141,7 +141,7 @@ function ActionPlan({ steps, serverName, onOpenScript }: {
                       )}
                       {s.script && onOpenScript && (
                         <button
-                          onClick={() => onOpenScript(s.script!, s.server)}
+                          onClick={() => onOpenScript(s.script!, s.server, `Este script corresponde al paso del plan de acción: "${s.step}"${s.dependsOn ? ` (primero: ${s.dependsOn})` : ''}.`)}
                           className="flex items-center gap-1 mt-1 text-[11px] px-1.5 py-0.5 rounded border font-mono border-zinc-700 text-blue-400 hover:bg-blue-900/20 hover:border-blue-800 transition-colors"
                           title={`Abrir ${s.script}`}
                         >
