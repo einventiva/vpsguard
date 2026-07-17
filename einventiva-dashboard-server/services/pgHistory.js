@@ -1,14 +1,16 @@
 const { executeSSHCommand, filterWarnings } = require('./ssh');
-const { detectPgUser, psqlViaB64, discoverPgContainers } = require('./pg');
+const { resolvePgUser, psqlViaB64, discoverPgContainers } = require('./pg');
 const { log } = require('./logger');
 
 // One query to the postgres db returns everything as a single JSON
 // object — no per-database round-trips. pg_stat_replication is empty
-// (lag 0) on non-primaries and without replication.
+// (lag 0) on non-primaries and without replication. The recovery guard
+// matters: pg_current_wal_lsn() RAISES on a standby in recovery, which
+// would kill the whole sample.
 const SAMPLE_SQL = `SELECT json_build_object(
   'max_connections', (SELECT setting::int FROM pg_settings WHERE name = 'max_connections'),
   'total_connections', (SELECT count(*) FROM pg_stat_activity),
-  'replication_lag_bytes', (SELECT COALESCE(max(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn))::bigint, 0) FROM pg_stat_replication),
+  'replication_lag_bytes', (CASE WHEN pg_is_in_recovery() THEN NULL ELSE (SELECT COALESCE(max(pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn))::bigint, 0) FROM pg_stat_replication) END),
   'databases', (SELECT COALESCE(json_agg(json_build_object(
       'datname', datname,
       'size_bytes', pg_database_size(datname),
@@ -73,7 +75,11 @@ async function samplePgServer(serverKey, alias) {
 
   for (const c of containers) {
     try {
-      const pgUser = await detectPgUser(alias, c.name);
+      const pgUser = await resolvePgUser(alias, c.name);
+      if (!pgUser) {
+        log('PG sample skipped: no working role', { server: serverKey, container: c.name });
+        continue;
+      }
       const raw = await executeSSHCommand(alias, psqlViaB64(c.name, pgUser, SAMPLE_SQL), 15000);
       const parsed = parsePgSample(raw, { server: serverKey, container: c.name, timestamp });
       if (!parsed) {
