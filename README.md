@@ -19,6 +19,7 @@ Monitor your VPS fleet from a single dashboard: live CPU, memory, disk metrics, 
 - **Script Execution** — Create, edit, and run shell scripts remotely with live terminal output streaming, persistent execution history with stored output, last-run badges per script, fleet-wide "Run on all" with side-by-side panes, and a typed-confirmation guard for destructive scripts
 - **Scheduled Scripts** — Give any script a cron schedule and target servers; it runs automatically, lands in the same history, and a `script` alert fires when a scheduled run fails (auto-resolves on the next passing run)
 - **Alert → Script Bridge** — Tag scripts with the alert types they remediate; active alerts show one-click shortcuts that open the script with the affected server preselected
+- **AI Analysis (Prevention)** — On-demand LLM analysis of a compact fleet snapshot via any OpenAI-compatible endpoint (LiteLLM, Ollama, OpenAI, xAI) or the native Anthropic API: executive summary plus prioritized findings with actions and suggested scripts
 - **Crontab Manager** — View, create, toggle, and delete cron jobs with preset schedules and human-readable descriptions
 - **Log Viewer** — Browse container logs per server with auto-scroll and copy support
 - **Server Management** — Full CRUD for servers with SSH connectivity testing
@@ -280,6 +281,9 @@ You can create, edit, and delete scripts from the dashboard UI.
 | PUT | `/api/scripts/:id` | Update script |
 | DELETE | `/api/scripts/:id` | Delete script |
 | GET | `/api/executions` | Script execution history (filter by `server`, `script`) |
+| POST | `/api/ai/analyze` | Run an AI fleet analysis (rate limited) |
+| GET | `/api/ai/analyses` | AI analysis history |
+| GET | `/api/ai/config` | AI module status (no secrets) |
 | GET | `/api/executions/latest` | Latest execution per script for a server |
 | GET | `/api/executions/:id` | Full execution record with stored output |
 | GET | `/api/crontab/:server` | List cron jobs |
@@ -329,6 +333,7 @@ MIT
 - **Ejecución de Scripts** — Crea, edita y ejecuta scripts de shell remotamente con salida en terminal en tiempo real, historial persistente de ejecuciones con output almacenado, badges de última ejecución por script, "Run on all" para toda la flota con paneles lado a lado, y guarda de confirmación tipeada para scripts destructivos
 - **Scripts Programados** — Dale a cualquier script un schedule cron y servidores destino; corre automáticamente, cae en el mismo historial, y una alerta `script` se dispara cuando una corrida programada falla (se resuelve sola con la siguiente corrida exitosa)
 - **Puente Alertas → Scripts** — Etiqueta scripts con los tipos de alerta que remedian; las alertas activas muestran accesos de un clic que abren el script con el servidor afectado preseleccionado
+- **Análisis con IA (Prevención)** — Análisis LLM bajo demanda de un snapshot compacto de la flota vía cualquier endpoint OpenAI-compatible (LiteLLM, Ollama, OpenAI, xAI) o la API nativa de Anthropic: resumen ejecutivo más hallazgos priorizados con acciones y scripts sugeridos
 - **Gestor de Crontab** — Ver, crear, activar/desactivar y eliminar cron jobs con presets y descripciones legibles
 - **Visor de Logs** — Navega logs de containers por servidor con auto-scroll y copia
 - **Gestión de Servidores** — CRUD completo con prueba de conectividad SSH
@@ -590,6 +595,9 @@ Puedes crear, editar y eliminar scripts desde la interfaz del dashboard.
 | PUT | `/api/scripts/:id` | Actualizar script |
 | DELETE | `/api/scripts/:id` | Eliminar script |
 | GET | `/api/executions` | Historial de ejecuciones (filtros `server`, `script`) |
+| POST | `/api/ai/analyze` | Ejecuta un análisis IA de la flota (rate limited) |
+| GET | `/api/ai/analyses` | Historial de análisis IA |
+| GET | `/api/ai/config` | Estado del módulo IA (sin secretos) |
 | GET | `/api/executions/latest` | Última ejecución por script para un servidor |
 | GET | `/api/executions/:id` | Registro completo con el output almacenado |
 | GET | `/api/crontab/:server` | Listar cron jobs |

@@ -30,13 +30,16 @@ import {
   WifiOff,
   ArrowLeft,
   Bell,
+  Sparkles,
 } from 'lucide-react'
+import { PreventionPanel } from '@/components/PreventionPanel'
 
-type TabType = 'overview' | 'alerts' | 'docker' | 'postgres' | 'scripts' | 'crontab' | 'logs' | 'servers' | 'serverDetail'
+type TabType = 'overview' | 'alerts' | 'prevention' | 'docker' | 'postgres' | 'scripts' | 'crontab' | 'logs' | 'servers' | 'serverDetail'
 
 const navItems: Array<{ id: TabType; label: string; icon: React.ReactNode }> = [
   { id: 'overview', label: 'Overview', icon: <Activity className="w-4 h-4" /> },
   { id: 'alerts', label: 'Alerts', icon: <Bell className="w-4 h-4" /> },
+  { id: 'prevention', label: 'Prevención', icon: <Sparkles className="w-4 h-4" /> },
   { id: 'docker', label: 'Docker', icon: <Container className="w-4 h-4" /> },
   { id: 'postgres', label: 'PostgreSQL', icon: <Database className="w-4 h-4" /> },
   { id: 'scripts', label: 'Scripts', icon: <Terminal className="w-4 h-4" /> },
@@ -237,6 +240,7 @@ function App() {
               </ErrorBoundary>
             )}
             {activeTab === 'alerts' && <ErrorBoundary fallbackLabel="Alerts panel failed"><AlertsPanel alertsApi={alertsApi} thresholdsApi={thresholdsApi} servers={servers} onOpenScript={openScript} /></ErrorBoundary>}
+            {activeTab === 'prevention' && <ErrorBoundary fallbackLabel="Prevention panel failed"><PreventionPanel servers={servers} onOpenScript={openScript} /></ErrorBoundary>}
             {activeTab === 'docker' && <ErrorBoundary fallbackLabel="Docker panel failed"><DockerPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
             {activeTab === 'postgres' && <ErrorBoundary fallbackLabel="PostgreSQL panel failed"><PostgresPanel servers={servers} serverKeys={serverKeys} /></ErrorBoundary>}
             {activeTab === 'scripts' && <ErrorBoundary fallbackLabel="Scripts panel failed"><ScriptsPanel servers={servers} serverKeys={serverKeys} initialTarget={scriptTarget} onTargetConsumed={() => setScriptTarget(null)} /></ErrorBoundary>}
