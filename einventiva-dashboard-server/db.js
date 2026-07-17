@@ -154,6 +154,20 @@ function initDB() {
     );
     CREATE INDEX IF NOT EXISTS idx_pg_history ON pg_history(server, container, datname, timestamp);
 
+    CREATE TABLE IF NOT EXISTS ai_analyses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      timestamp TEXT NOT NULL,
+      provider TEXT,
+      model TEXT,
+      sample TEXT,
+      findings TEXT,
+      summary TEXT,
+      tokens_in INTEGER,
+      tokens_out INTEGER,
+      duration_ms INTEGER,
+      error TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS metrics_rollup (
       server TEXT NOT NULL,
       bucket_start TEXT NOT NULL,
@@ -492,6 +506,41 @@ function getExecution(id) {
   return db.prepare('SELECT * FROM script_executions WHERE id = ?').get(id);
 }
 
+// Latest per-container aggregate PG sample (datname='') — AI sample input
+function getLatestPgAggregates(sinceIso) {
+  return db.prepare(`
+    SELECT server, container, connections, max_connections, size_bytes, replication_lag_bytes, timestamp FROM (
+      SELECT *, ROW_NUMBER() OVER (PARTITION BY server, container ORDER BY timestamp DESC) AS rn
+      FROM pg_history WHERE datname = '' AND timestamp >= ?
+    ) WHERE rn = 1
+  `).all(sinceIso);
+}
+
+// ─── AI Analyses ─────────────────────────────────────────────────────
+function insertAiAnalysis({ timestamp, provider, model, sample, findings, summary, tokensIn, tokensOut, durationMs, error }) {
+  const info = db.prepare(`
+    INSERT INTO ai_analyses (timestamp, provider, model, sample, findings, summary, tokens_in, tokens_out, duration_ms, error)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(timestamp, provider, model, sample, findings, summary, tokensIn ?? null, tokensOut ?? null, durationMs ?? null, error ?? null);
+  return getAiAnalysis(info.lastInsertRowid);
+}
+
+// List omits the (large) sample; fetch it per-row with getAiAnalysis
+function getAiAnalyses(limit = 20) {
+  return db.prepare(`
+    SELECT id, timestamp, provider, model, findings, summary, tokens_in, tokens_out, duration_ms, error
+    FROM ai_analyses ORDER BY id DESC LIMIT ?
+  `).all(limit);
+}
+
+function getAiAnalysis(id) {
+  return db.prepare('SELECT * FROM ai_analyses WHERE id = ?').get(id);
+}
+
+function pruneAiAnalyses(keep = 100) {
+  return db.prepare('DELETE FROM ai_analyses WHERE id NOT IN (SELECT id FROM ai_analyses ORDER BY id DESC LIMIT ?)').run(keep);
+}
+
 // Latest scheduled run per (server, script) — drives the script-failed alert
 function getLastScheduledExecutions() {
   return db.prepare(`
@@ -667,6 +716,11 @@ module.exports = {
   getLatestExecutions,
   getLastScheduledExecutions,
   truncateOutput,
+  getLatestPgAggregates,
+  insertAiAnalysis,
+  getAiAnalyses,
+  getAiAnalysis,
+  pruneAiAnalyses,
   // Alerts
   openAlert,
   getAlert,
