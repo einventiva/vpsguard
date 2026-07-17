@@ -14,7 +14,7 @@ Monitor your VPS fleet from a single dashboard: live CPU, memory, disk metrics, 
 
 ### Features
 
-- **Real-time Monitoring** — CPU, memory, disk, uptime, and load average for all servers via WebSocket with HTTP polling fallback
+- **Real-time Monitoring** — CPU, memory, disk, uptime, load average, and SSH latency for all servers via WebSocket with HTTP polling fallback
 - **Docker Management** — List containers with live CPU/RAM/Disk I/O stats, status badges, and log viewer
 - **Script Execution** — Create, edit, and run shell scripts remotely with live terminal output streaming
 - **Crontab Manager** — View, create, toggle, and delete cron jobs with preset schedules and human-readable descriptions
@@ -29,6 +29,8 @@ Monitor your VPS fleet from a single dashboard: live CPU, memory, disk metrics, 
 - **PostgreSQL Monitoring** — Auto-discovers Postgres containers: databases with size and connections, cache hit ratio, active queries, locks, replication — plus a 5-min sampler that powers per-container **trend charts** (connections vs `max_connections`, size growth) and a `pg-connections` saturation alert
 - **Cron Execution Watch** — Reads real CRON executions from syslog: each job shows its last run and an OVERDUE badge when it stops running (2× its expected interval), with an hourly alert — so a silently failing backup is caught before you need it
 - **Container Health** — Restart counts and OOM-kill flags per container: a crash-looping container can no longer hide behind "Up 2 minutes"
+- **System Signals** — Failure modes CPU/mem/disk can't see: inode exhaustion (`inodes` alert at 90% — a disk can fill on inodes with free space left), failed systemd units (`systemd` alert with unit names), swap pressure, and pending-reboot flags, surfaced as attention chips on each server card
+- **SSL Certificate Watch** — Hourly certbot check with an `ssl` alert when any certificate expires within 14 days (critical ≤ 7): a silently failing renewal is caught before the browser error
 - **macOS Widget** — (Experimental) Übersicht desktop widget for at-a-glance monitoring (reads the API token from `~/.config/vpsguard/token`)
 
 ### Tech Stack
@@ -106,6 +108,7 @@ vpsguard/
 │   │   ├── thresholds.js                # Cascading threshold resolution
 │   │   ├── projections.js               # Linear-regression projections
 │   │   ├── cronWatch.js                 # Syslog CRON execution parsing
+│   │   ├── sslCheck.js                  # Certbot certificate expiry check
 │   │   ├── pg.js                        # Shared PG helpers
 │   │   ├── pgHistory.js                 # PostgreSQL 5-min sampler
 │   │   ├── notify.js                    # Alert webhook delivery
@@ -159,10 +162,11 @@ DETAIL_KEEP_DAYS=3
 ROLLUP_KEEP_DAYS=365
 PG_KEEP_DAYS=90
 
-# Alerting: hysteresis samples, disk-full ETA threshold, PG connection saturation
+# Alerting: hysteresis samples, disk-full ETA, SSL expiry, PG connection saturation
 ALERT_SAMPLES_TO_OPEN=2
 ALERT_SAMPLES_TO_RESOLVE=4
 DISK_ETA_ALERT_DAYS=14
+SSL_ALERT_DAYS=14
 PG_CONN_ALERT_PCT=80
 # Optional: POST { event, alert, sentAt } on every alert transition
 # ALERT_WEBHOOK_URL=https://example.com/webhook
@@ -301,6 +305,8 @@ All configuration is done via environment variables (see `.env.example` for the 
 
 **Cron execution watch** reads `/var/log/syslog`, which requires the SSH user to be in the `adm` group on each monitored server: `sudo usermod -aG adm YOUR_USER`. Without it, cron entries show without last-run info (no false alarms are raised).
 
+**SSL certificate watch** runs `sudo -n certbot certificates`, which requires passwordless sudo for the SSH user. Without it, no certificates are reported and no alerts fire.
+
 ### License
 
 MIT
@@ -311,7 +317,7 @@ MIT
 
 ### Características
 
-- **Monitoreo en tiempo real** — CPU, memoria, disco, uptime y load average de todos los servidores vía WebSocket con fallback HTTP polling
+- **Monitoreo en tiempo real** — CPU, memoria, disco, uptime, load average y latencia SSH de todos los servidores vía WebSocket con fallback HTTP polling
 - **Gestión Docker** — Lista de containers con estadísticas en vivo de CPU/RAM/Disco, badges de estado y visor de logs
 - **Ejecución de Scripts** — Crea, edita y ejecuta scripts de shell remotamente con salida en terminal en tiempo real
 - **Gestor de Crontab** — Ver, crear, activar/desactivar y eliminar cron jobs con presets y descripciones legibles
@@ -326,6 +332,8 @@ MIT
 - **Monitoreo PostgreSQL** — Descubre containers de Postgres automáticamente: bases con tamaño y conexiones, cache hit ratio, queries activas, locks, replicación — más un muestreador cada 5 min que alimenta **gráficas de tendencia** por container (conexiones vs `max_connections`, crecimiento de tamaño) y una alerta `pg-connections` por saturación
 - **Vigilancia de Ejecución de Crons** — Lee las ejecuciones reales de CRON desde syslog: cada job muestra su última corrida y un badge OVERDUE cuando deja de correr (2× su intervalo esperado), con alerta horaria — un backup que falla en silencio se detecta antes de necesitarlo
 - **Salud de Containers** — Conteo de reinicios y flag de OOM-kill por container: un container en crash-loop ya no se esconde tras "Up 2 minutes"
+- **Señales de Sistema** — Modos de fallo que CPU/mem/disco no ven: agotamiento de inodos (alerta `inodes` al 90% — un disco puede llenarse de inodos con espacio libre), unidades systemd fallidas (alerta `systemd` con los nombres), presión de swap y reinicio pendiente, mostrados como chips de atención en cada tarjeta
+- **Vigilancia de Certificados SSL** — Chequeo horario vía certbot con alerta `ssl` cuando algún certificado expira en menos de 14 días (critical ≤ 7): una renovación que falla en silencio se detecta antes del error en el navegador
 - **Widget macOS** — (Experimental) Widget para Übersicht para monitoreo de un vistazo (lee el token desde `~/.config/vpsguard/token`)
 
 ### Stack Tecnológico
@@ -403,6 +411,7 @@ vpsguard/
 │   │   ├── thresholds.js                # Resolución de umbrales en cascada
 │   │   ├── projections.js               # Proyecciones por regresión lineal
 │   │   ├── cronWatch.js                 # Parsing de ejecuciones CRON en syslog
+│   │   ├── sslCheck.js                  # Chequeo de expiración de certificados (certbot)
 │   │   ├── pg.js                        # Helpers PG compartidos
 │   │   ├── pgHistory.js                 # Muestreador PostgreSQL cada 5 min
 │   │   ├── notify.js                    # Entrega de webhook de alertas
@@ -456,10 +465,11 @@ DETAIL_KEEP_DAYS=3
 ROLLUP_KEEP_DAYS=365
 PG_KEEP_DAYS=90
 
-# Alertas: muestras de histéresis, umbral de ETA de disco, saturación de conexiones PG
+# Alertas: muestras de histéresis, ETA de disco, expiración SSL, saturación de conexiones PG
 ALERT_SAMPLES_TO_OPEN=2
 ALERT_SAMPLES_TO_RESOLVE=4
 DISK_ETA_ALERT_DAYS=14
+SSL_ALERT_DAYS=14
 PG_CONN_ALERT_PCT=80
 # Opcional: POST { event, alert, sentAt } en cada transición de alerta
 # ALERT_WEBHOOK_URL=https://example.com/webhook
@@ -597,6 +607,8 @@ Puedes crear, editar y eliminar scripts desde la interfaz del dashboard.
 Toda la configuración se hace mediante variables de entorno (ver `.env.example` para la lista completa). Los servidores se almacenan en SQLite y se gestionan desde la interfaz. Las variables de servidor en `.env` (`SERVER_*`) solo se usan como seed inicial cuando la base de datos está vacía. Los umbrales de alerta se gestionan desde la pestaña Alerts y se guardan en SQLite.
 
 **La vigilancia de ejecución de crons** lee `/var/log/syslog`, lo que requiere que el usuario SSH esté en el grupo `adm` en cada servidor monitoreado: `sudo usermod -aG adm TU_USUARIO`. Sin esto, las entradas de cron se muestran sin última corrida (no se generan falsas alarmas).
+
+**La vigilancia de certificados SSL** ejecuta `sudo -n certbot certificates`, lo que requiere sudo sin contraseña para el usuario SSH. Sin esto, no se reportan certificados y no se generan alertas.
 
 ### Licencia
 
