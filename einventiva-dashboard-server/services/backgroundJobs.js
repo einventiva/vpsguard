@@ -10,7 +10,9 @@ const { getCronStatus } = require('./cronWatch');
 const { samplePgServer } = require('./pgHistory');
 const { fetchCertificates } = require('./sslCheck');
 const { fetchRestartCounts, computeRestartDeltas, toSnapshot } = require('./containerWatch');
-const { dueScripts, resolveTargetServers } = require('./scheduler');
+const { dueScripts, resolveTargetServers, parseCron, cronMatches, isValidCron } = require('./scheduler');
+const { runAnalysis, isConfigured: aiConfigured, toClientShape, groupFindingsForAlerts } = require('./aiAnalysis');
+const { sendCustomNotification } = require('./alerts');
 const { sendWebhook } = require('./notify');
 const { setCache } = require('./cache');
 const {
@@ -19,6 +21,7 @@ const {
   SLOW_CHECK_INTERVAL, SLOW_CHECK_STARTUP_DELAY, DISK_ETA_ALERT_DAYS, SSL_ALERT_DAYS,
   PG_SAMPLE_INTERVAL, PG_SAMPLE_STARTUP_DELAY, PG_KEEP_DAYS, PG_CONN_ALERT_PCT, PG_REPL_LAG_ALERT_MB,
   ALERT_SAMPLES_TO_OPEN, ALERT_SAMPLES_TO_RESOLVE, SCRIPT_TIMEOUT,
+  AI_ANALYSIS_SCHEDULE, AI_OPEN_ALERTS,
 } = require('../config');
 
 async function fetchAllServerStatus(getServers) {
@@ -392,6 +395,68 @@ async function runScheduledScripts(io, getServers, now = new Date()) {
   }
 }
 
+// Post-analysis side effects, shared by scheduled and manual runs:
+// socket event for open panels, desktop notification, and (opt-in)
+// per-server `ai` alerts through the standard transition pipeline.
+function afterAiAnalysis(io, record, getServers) {
+  const client = toClientShape(record);
+  io.emit('ai:analysis', client);
+
+  const findings = client.findings || [];
+  if (client.error) {
+    sendCustomNotification('VPSGuard — Análisis IA', `El análisis falló: ${client.error.slice(0, 120)}`, 'Basso');
+  } else if (findings.length > 0) {
+    const criticals = findings.filter(f => f.severity === 'critical').length;
+    sendCustomNotification(
+      'VPSGuard — Análisis IA',
+      `${findings.length} hallazgo(s)${criticals ? ` (${criticals} critical)` : ''} — revisa la pestaña Prevención`,
+      criticals ? 'Basso' : 'Ping'
+    );
+  }
+
+  if (AI_OPEN_ALERTS && !client.error) {
+    const SERVERS = getServers();
+    const groups = groupFindingsForAlerts(findings);
+    // Evaluate every server (plus 'fleet') so alerts also resolve when
+    // a later analysis comes back clean for that server
+    for (const key of [...Object.keys(SERVERS), 'fleet']) {
+      const g = groups[key];
+      transitionAlert(io, {
+        server: key,
+        type: 'ai',
+        active: !!g,
+        severity: g?.severity || 'warning',
+        message: g ? `AI: ${g.titles.join(' | ')}${g.count > g.titles.length ? ` (+${g.count - g.titles.length} más)` : ''}` : '',
+        value: g?.count ?? null,
+        threshold: null,
+      });
+    }
+  }
+}
+
+// Scheduled AI analyses: fire when AI_ANALYSIS_SCHEDULE matches the
+// current minute (same cron dialect as scheduled scripts)
+function startAiAnalysisLoop(io, getServers) {
+  if (!AI_ANALYSIS_SCHEDULE) return;
+  if (!isValidCron(AI_ANALYSIS_SCHEDULE)) {
+    log('AI_ANALYSIS_SCHEDULE is not a valid cron expression — scheduled analyses disabled', { schedule: AI_ANALYSIS_SCHEDULE });
+    return;
+  }
+  const parsed = parseCron(AI_ANALYSIS_SCHEDULE);
+  const tick = async () => {
+    try {
+      if (!aiConfigured() || !cronMatches(parsed, new Date())) return;
+      log('Scheduled AI analysis starting');
+      const record = await runAnalysis(getServers);
+      afterAiAnalysis(io, record, getServers);
+    } catch (e) {
+      log('Scheduled AI analysis error', { error: e.message });
+    }
+  };
+  const msToNextMinute = 60000 - (Date.now() % 60000);
+  setTimeout(() => { tick(); setInterval(tick, 60000); }, msToNextMinute + 750);
+}
+
 function startSchedulerLoop(io, getServers) {
   const tick = () => runScheduledScripts(io, getServers).catch(e => log('Scheduler loop error', { error: e.message }));
   // Align ticks to minute boundaries so cron minute matching holds
@@ -425,4 +490,4 @@ function startRollupLoop() {
   setInterval(rollup, ROLLUP_INTERVAL);
 }
 
-module.exports = { fetchAllServerStatus, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, runSlowChecks, runPgSampling, runScheduledScripts };
+module.exports = { fetchAllServerStatus, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop, afterAiAnalysis, runSlowChecks, runPgSampling, runScheduledScripts };

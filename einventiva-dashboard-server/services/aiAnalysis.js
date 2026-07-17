@@ -7,7 +7,9 @@ const { buildSample } = require('./aiSample');
 const { callLLM } = require('./aiProviders');
 const {
   AI_PROVIDER, AI_BASE_URL, AI_API_KEY, AI_MODEL, AI_MAX_TOKENS, AI_TIMEOUT_MS, AI_KEEP_ANALYSES,
+  AI_ANALYSIS_SCHEDULE, AI_OPEN_ALERTS,
 } = require('../config');
+const { isValidCron } = require('./scheduler');
 
 const SYSTEM_PROMPT = `You are a preventive SRE analyst for a small fleet of Linux servers running Docker workloads, monitored by a dashboard that collects the JSON snapshot you receive.
 
@@ -75,8 +77,49 @@ function publicConfig() {
     configured: isConfigured(),
     provider: AI_PROVIDER || null,
     model: AI_MODEL || null,
+    schedule: AI_ANALYSIS_SCHEDULE && isValidCron(AI_ANALYSIS_SCHEDULE) ? AI_ANALYSIS_SCHEDULE : null,
+    openAlerts: AI_OPEN_ALERTS,
     // never expose AI_API_KEY or full base URL (may embed credentials)
   };
+}
+
+// A stored row as clients consume it: findings parsed, sample optional
+function toClientShape(row, { includeSample = false } = {}) {
+  if (!row) return row;
+  let findings = null;
+  try { findings = row.findings ? JSON.parse(row.findings) : null; } catch (_) { /* keep null */ }
+  const out = {
+    id: row.id,
+    timestamp: row.timestamp,
+    provider: row.provider,
+    model: row.model,
+    summary: row.summary,
+    findings,
+    tokensIn: row.tokens_in,
+    tokensOut: row.tokens_out,
+    durationMs: row.duration_ms,
+    error: row.error,
+  };
+  if (includeSample) {
+    try { out.sample = row.sample ? JSON.parse(row.sample) : null; } catch (_) { out.sample = null; }
+  }
+  return out;
+}
+
+// Group warning/critical findings by server for the optional `ai`
+// alert: { server: { severity, count, titles } }. Info findings never
+// open alerts.
+function groupFindingsForAlerts(findings) {
+  const groups = {};
+  for (const f of findings || []) {
+    if (f.severity !== 'critical' && f.severity !== 'warning') continue;
+    const key = f.server || 'fleet';
+    if (!groups[key]) groups[key] = { severity: 'warning', count: 0, titles: [] };
+    groups[key].count++;
+    if (groups[key].titles.length < 3) groups[key].titles.push(f.title);
+    if (f.severity === 'critical') groups[key].severity = 'critical';
+  }
+  return groups;
 }
 
 let running = false;
@@ -125,4 +168,4 @@ async function runAnalysis(getServers) {
   }
 }
 
-module.exports = { runAnalysis, parseFindings, isConfigured, publicConfig, SYSTEM_PROMPT };
+module.exports = { runAnalysis, parseFindings, isConfigured, publicConfig, toClientShape, groupFindingsForAlerts, SYSTEM_PROMPT };

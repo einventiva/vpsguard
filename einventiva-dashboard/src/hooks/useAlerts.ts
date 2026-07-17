@@ -44,6 +44,7 @@ export function useAlerts(): UseAlertsReturn {
       flapping: 'Container restarts increasing',
       'pg-replication': 'PostgreSQL replication lagging',
       script: 'Scheduled script failing',
+      ai: 'AI analysis findings',
     }
 
     const onOpened = (alert: Alert) => {

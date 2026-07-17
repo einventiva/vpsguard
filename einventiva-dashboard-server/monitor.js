@@ -9,7 +9,7 @@ const { log } = require('./services/logger');
 const { handleError } = require('./services/logger');
 const { httpAuth, socketAuth } = require('./middleware/auth');
 const { registerHandlers } = require('./websocket/handlers');
-const { startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop } = require('./services/backgroundJobs');
+const { startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop } = require('./services/backgroundJobs');
 
 // ─── Express + HTTP Server ──────────────────────────────────────────
 const app = express();
@@ -40,7 +40,7 @@ app.use('/api', require('./routes/scripts')(getServers));
 app.use('/api', require('./routes/servers')(getServers, setServers));
 app.use('/api', require('./routes/crontab')(getServers));
 app.use('/api', require('./routes/history')(getServers));
-app.use('/api', require('./routes/ai')(getServers));
+app.use('/api', require('./routes/ai')(getServers, io));
 app.use('/api', require('./routes/alerts')());
 app.use('/api', require('./routes/thresholds')(getServers));
 app.use('/api', require('./routes/projections')(getServers));
@@ -112,6 +112,7 @@ startRollupLoop();
 startSlowCheckLoop(io, getServers);
 startPgSampleLoop(io, getServers);
 startSchedulerLoop(io, getServers);
+startAiAnalysisLoop(io, getServers);
 
 server.listen(PORT, () => {
   log(`Server started on http://localhost:${PORT}`);

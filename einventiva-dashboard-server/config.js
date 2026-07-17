@@ -26,6 +26,11 @@ const AI_MODEL = process.env.AI_MODEL || '';
 const AI_MAX_TOKENS = parseInt(process.env.AI_MAX_TOKENS, 10) || 6000;
 const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS, 10) || 120000;
 const AI_KEEP_ANALYSES = parseInt(process.env.AI_KEEP_ANALYSES, 10) || 100;
+// 5-field cron for scheduled analyses (e.g. "0 9,12,15,18 * * *"); empty = manual only
+const AI_ANALYSIS_SCHEDULE = (process.env.AI_ANALYSIS_SCHEDULE || '').trim();
+// When true, warning/critical AI findings open per-server alerts of type
+// 'ai' through the standard pipeline (socket + native + webhook)
+const AI_OPEN_ALERTS = process.env.AI_OPEN_ALERTS === 'true';
 
 const ALERT_THRESHOLDS = {
   cpu: 80,
@@ -154,6 +159,7 @@ module.exports = {
   SCRIPT_TIMEOUT,
   CORS_ORIGINS,
   AI_PROVIDER, AI_BASE_URL, AI_API_KEY, AI_MODEL, AI_MAX_TOKENS, AI_TIMEOUT_MS, AI_KEEP_ANALYSES,
+  AI_ANALYSIS_SCHEDULE, AI_OPEN_ALERTS,
   ALERT_THRESHOLDS,
   ALERT_SAMPLES_TO_OPEN,
   ALERT_SAMPLES_TO_RESOLVE,
