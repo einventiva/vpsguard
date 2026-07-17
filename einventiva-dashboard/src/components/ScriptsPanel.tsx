@@ -46,7 +46,7 @@ interface ScriptsPanelProps {
   servers: Record<string, ServerInfo>
   serverKeys: string[]
   // Alert → script bridge: preselect a script + server on mount
-  initialTarget?: { script: string; server: string } | null
+  initialTarget?: { script: string; server: string; context?: string } | null
   onTargetConsumed?: () => void
 }
 
@@ -61,7 +61,7 @@ const INTERPRET_SEV: Record<AiInterpretation['severity'], { color: string; badge
 // and stored history. Sends output (by execution id when available) to
 // the AI module and renders the verdict inline.
 function InterpretBlock({ payload, aiConfigured }: {
-  payload: { executionId?: number; script?: string; server?: string; output?: string }
+  payload: { executionId?: number; script?: string; server?: string; output?: string; context?: string }
   aiConfigured: boolean
 }) {
   const [loading, setLoading] = useState(false)
@@ -182,6 +182,9 @@ export function ScriptsPanel({
   const [expandedExec, setExpandedExec] = useState<number | null>(null)
   const [execOutputs, setExecOutputs] = useState<Record<number, string>>({})
   const [aiConfigured, setAiConfigured] = useState(false)
+  // Why the current script was opened via the alert/plan bridge — fed to
+  // the AI interpretation so its verdict reconciles with that concern
+  const [bridge, setBridge] = useState<{ script: string; context: string } | null>(null)
 
   // Detail/confirmation state
   const [selected, setSelected] = useState<ScriptResult | null>(null)
@@ -330,8 +333,10 @@ export function ScriptsPanel({
   const pendingTarget = useRef(initialTarget || null)
   useEffect(() => {
     if (!pendingTarget.current || scripts.length === 0) return
-    const match = scripts.find(s => s.id === pendingTarget.current!.script)
+    const target = pendingTarget.current
+    const match = scripts.find(s => s.id === target.script)
     if (match) setSelected(match)
+    if (target.context) setBridge({ script: target.script, context: target.context })
     pendingTarget.current = null
     onTargetConsumed?.()
   }, [scripts])
@@ -1054,6 +1059,7 @@ export function ScriptsPanel({
                       script: selected?.id,
                       server,
                       output: currentRun.output.map(c => c.data).join(''),
+                      context: bridge && selected?.id === bridge.script ? bridge.context : undefined,
                     }}
                   />
                 )}
