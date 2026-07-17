@@ -3,7 +3,7 @@ const db = require('../db');
 const { log, handleError } = require('../services/logger');
 const { getCached, setCache } = require('../services/cache');
 const { executeSSHCommand, filterWarnings } = require('../services/ssh');
-const { detectPgUser, psqlViaB64, discoverPgContainers } = require('../services/pg');
+const { resolvePgUser, psqlViaB64, discoverPgContainers, cleanPgError } = require('../services/pg');
 
 // Clean SSH output: remove warnings, keep only data lines
 function cleanOutput(raw) {
@@ -50,7 +50,10 @@ function createRouter(getServers) {
       const containers = await Promise.allSettled(
         rawContainers.map(async (c) => {
           try {
-            const pgUser = await detectPgUser(serverConfig.alias, c.name);
+            const pgUser = await resolvePgUser(serverConfig.alias, c.name);
+            if (!pgUser) {
+              return { ...c, version: '', databases: [], error: 'No working PostgreSQL role found for this container' };
+            }
             const sql = "SELECT json_agg(row_to_json(t)) FROM (SELECT datname, pg_database_size(datname) as size_bytes, numbackends as active_connections FROM pg_stat_database WHERE datname NOT LIKE 'template%') t;\nSELECT version();";
             const raw = await executeSSHCommand(
               serverConfig.alias,
@@ -80,7 +83,7 @@ function createRouter(getServers) {
 
             return { ...c, version, databases, error: null };
           } catch (err) {
-            return { ...c, version: '', databases: [], error: err.message || 'Failed to query PostgreSQL' };
+            return { ...c, version: '', databases: [], error: cleanPgError(err.message) };
           }
         })
       );
@@ -157,7 +160,10 @@ function createRouter(getServers) {
 
       const serverConfig = SERVERS[serverKey];
 
-      const pgUser = await detectPgUser(serverConfig.alias, container);
+      const pgUser = await resolvePgUser(serverConfig.alias, container);
+      if (!pgUser) {
+        return res.status(502).json({ error: 'No working PostgreSQL role found for this container' });
+      }
 
       // Queries that are DB-specific (tables) connect to the selected DB
       // Global stats (cache hit, queries, locks, replication) connect to postgres
