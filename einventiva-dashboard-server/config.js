@@ -23,7 +23,7 @@ const AI_PROVIDER = (process.env.AI_PROVIDER || '').trim();
 const AI_BASE_URL = (process.env.AI_BASE_URL || '').trim().replace(/\/$/, '');
 const AI_API_KEY = process.env.AI_API_KEY || '';
 const AI_MODEL = process.env.AI_MODEL || '';
-const AI_MAX_TOKENS = parseInt(process.env.AI_MAX_TOKENS, 10) || 2500;
+const AI_MAX_TOKENS = parseInt(process.env.AI_MAX_TOKENS, 10) || 6000;
 const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS, 10) || 120000;
 const AI_KEEP_ANALYSES = parseInt(process.env.AI_KEEP_ANALYSES, 10) || 100;
 
