@@ -26,9 +26,9 @@ Monitor your VPS fleet from a single dashboard: live CPU, memory, disk metrics, 
 - **Persistent Alert System** — Alerts with full lifecycle (open → acknowledge → auto-resolve) stored in SQLite, hysteresis to kill false positives (opens after ~30s over threshold, resolves after ~1min clean), recovery notifications, an Alerts tab with unacknowledged badge, and an optional **webhook** (`ALERT_WEBHOOK_URL`) that POSTs every transition to Slack/Telegram/n8n
 - **Per-server Thresholds** — Editable from the Alerts tab with cascading resolution (server → global → defaults); changes apply hot on the next sample
 - **Predictive Monitoring** — Linear-regression projections: *"disk full in ~N days"* on each server card (with a `disk-eta` alert when under 14 days) and sustained memory-climb detection for leak hunting
-- **PostgreSQL Monitoring** — Auto-discovers Postgres containers: databases with size and connections, cache hit ratio, active queries, locks, replication — plus a 5-min sampler that powers per-container **trend charts** (connections vs `max_connections`, size growth) and a `pg-connections` saturation alert. Works with replicas too: the connecting role is resolved by probing candidates (`POSTGRES_USER` → `postgres` → name-derived), with a `PG_USER_OVERRIDES` escape hatch
+- **PostgreSQL Monitoring** — Auto-discovers Postgres containers: databases with size and connections, cache hit ratio, active queries, locks, replication — plus a 5-min sampler that powers per-container **trend charts** (connections vs `max_connections`, size growth), a `pg-connections` saturation alert, and a `pg-replication` alert when a standby's lag exceeds `PG_REPL_LAG_ALERT_MB`. Works with replicas too: the connecting role is resolved by probing candidates (`POSTGRES_USER` → `postgres` → name-derived), with a `PG_USER_OVERRIDES` escape hatch
 - **Cron Execution Watch** — Reads real CRON executions from syslog: each job shows its last run and an OVERDUE badge when it stops running (2× its expected interval), with an hourly alert — so a silently failing backup is caught before you need it
-- **Container Health** — Restart counts and OOM-kill flags per container: a crash-looping container can no longer hide behind "Up 2 minutes"
+- **Container Health** — Restart counts and OOM-kill flags per container, plus an hourly `flapping` alert when restart counts grow between passes: a crash-looping container can no longer hide behind "Up 2 minutes"
 - **System Signals** — Failure modes CPU/mem/disk can't see: inode exhaustion (`inodes` alert at 90% — a disk can fill on inodes with free space left), failed systemd units (`systemd` alert with unit names), swap pressure, and pending-reboot flags, surfaced as attention chips on each server card
 - **SSL Certificate Watch** — Hourly certbot check with an `ssl` alert when any certificate expires within 14 days (critical ≤ 7): a silently failing renewal is caught before the browser error
 - **macOS Widget** — (Experimental) Übersicht desktop widget for at-a-glance monitoring (reads the API token from `~/.config/vpsguard/token`)
@@ -168,6 +168,7 @@ ALERT_SAMPLES_TO_RESOLVE=4
 DISK_ETA_ALERT_DAYS=14
 SSL_ALERT_DAYS=14
 PG_CONN_ALERT_PCT=80
+PG_REPL_LAG_ALERT_MB=100
 # Optional: POST { event, alert, sentAt } on every alert transition
 # ALERT_WEBHOOK_URL=https://example.com/webhook
 # Optional: explicit container->role mapping when PG role auto-detection can't guess
@@ -331,9 +332,9 @@ MIT
 - **Sistema de Alertas Persistente** — Alertas con ciclo de vida completo (abre → reconoce → auto-resuelve) guardadas en SQLite, histéresis contra falsos positivos (abre tras ~30s sobre umbral, resuelve tras ~1min limpio), notificaciones de recuperación, pestaña Alerts con badge de no-reconocidas, y **webhook** opcional (`ALERT_WEBHOOK_URL`) que hace POST de cada transición a Slack/Telegram/n8n
 - **Umbrales por Servidor** — Editables desde la pestaña Alerts con resolución en cascada (servidor → global → defaults); los cambios aplican en caliente en la siguiente muestra
 - **Monitoreo Predictivo** — Proyecciones por regresión lineal: *"disco lleno en ~N días"* en cada tarjeta de servidor (con alerta `disk-eta` bajo 14 días) y detección de subida sostenida de memoria para cazar leaks
-- **Monitoreo PostgreSQL** — Descubre containers de Postgres automáticamente: bases con tamaño y conexiones, cache hit ratio, queries activas, locks, replicación — más un muestreador cada 5 min que alimenta **gráficas de tendencia** por container (conexiones vs `max_connections`, crecimiento de tamaño) y una alerta `pg-connections` por saturación. Funciona también con réplicas: el rol de conexión se resuelve probando candidatos (`POSTGRES_USER` → `postgres` → derivados del nombre), con `PG_USER_OVERRIDES` como escape
+- **Monitoreo PostgreSQL** — Descubre containers de Postgres automáticamente: bases con tamaño y conexiones, cache hit ratio, queries activas, locks, replicación — más un muestreador cada 5 min que alimenta **gráficas de tendencia** por container (conexiones vs `max_connections`, crecimiento de tamaño), una alerta `pg-connections` por saturación y una alerta `pg-replication` cuando el lag de un standby supera `PG_REPL_LAG_ALERT_MB`. Funciona también con réplicas: el rol de conexión se resuelve probando candidatos (`POSTGRES_USER` → `postgres` → derivados del nombre), con `PG_USER_OVERRIDES` como escape
 - **Vigilancia de Ejecución de Crons** — Lee las ejecuciones reales de CRON desde syslog: cada job muestra su última corrida y un badge OVERDUE cuando deja de correr (2× su intervalo esperado), con alerta horaria — un backup que falla en silencio se detecta antes de necesitarlo
-- **Salud de Containers** — Conteo de reinicios y flag de OOM-kill por container: un container en crash-loop ya no se esconde tras "Up 2 minutes"
+- **Salud de Containers** — Conteo de reinicios y flag de OOM-kill por container, más una alerta `flapping` horaria cuando los reinicios crecen entre pasadas: un container en crash-loop ya no se esconde tras "Up 2 minutes"
 - **Señales de Sistema** — Modos de fallo que CPU/mem/disco no ven: agotamiento de inodos (alerta `inodes` al 90% — un disco puede llenarse de inodos con espacio libre), unidades systemd fallidas (alerta `systemd` con los nombres), presión de swap y reinicio pendiente, mostrados como chips de atención en cada tarjeta
 - **Vigilancia de Certificados SSL** — Chequeo horario vía certbot con alerta `ssl` cuando algún certificado expira en menos de 14 días (critical ≤ 7): una renovación que falla en silencio se detecta antes del error en el navegador
 - **Widget macOS** — (Experimental) Widget para Übersicht para monitoreo de un vistazo (lee el token desde `~/.config/vpsguard/token`)
@@ -473,6 +474,7 @@ ALERT_SAMPLES_TO_RESOLVE=4
 DISK_ETA_ALERT_DAYS=14
 SSL_ALERT_DAYS=14
 PG_CONN_ALERT_PCT=80
+PG_REPL_LAG_ALERT_MB=100
 # Opcional: POST { event, alert, sentAt } en cada transición de alerta
 # ALERT_WEBHOOK_URL=https://example.com/webhook
 # Opcional: mapeo explícito contenedor->rol cuando la autodetección no puede adivinar

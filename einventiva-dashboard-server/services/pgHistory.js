@@ -66,12 +66,14 @@ function parsePgSample(raw, { server, container, timestamp }) {
 }
 
 // Sample every postgres container on a server. Returns rows for
-// pg_history plus per-container connection saturation for alerting.
+// pg_history plus per-container connection saturation and replication
+// lag for alerting.
 async function samplePgServer(serverKey, alias) {
   const containers = await discoverPgContainers(alias);
   const timestamp = new Date().toISOString();
   const rows = [];
   const saturation = [];
+  const replication = [];
 
   for (const c of containers) {
     try {
@@ -96,12 +98,15 @@ async function samplePgServer(serverKey, alias) {
           pct: Math.round((agg.connections / agg.maxConnections) * 100),
         });
       }
+      if (agg.replicationLagBytes > 0) {
+        replication.push({ container: c.name, lagBytes: agg.replicationLagBytes });
+      }
     } catch (e) {
       log('PG sample failed', { server: serverKey, container: c.name, error: e.message?.substring(0, 200) });
     }
   }
 
-  return { rows, saturation };
+  return { rows, saturation, replication };
 }
 
 module.exports = { parsePgSample, samplePgServer, SAMPLE_SQL };
