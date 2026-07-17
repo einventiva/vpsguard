@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
+import { toast } from 'sonner'
 import type { AiAnalysis, AiConfig, AiFinding, ServerInfo } from '@/types'
 import { api } from '@/lib/api'
+import { getSharedSocket, releaseSharedSocket } from '@/lib/socket'
 import { formatRelativeTime, formatDuration } from '@/lib/formatters'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -15,6 +17,7 @@ import {
   ChevronRight,
   ChevronDown,
   CheckCircle,
+  CalendarClock,
 } from 'lucide-react'
 
 interface PreventionPanelProps {
@@ -90,6 +93,23 @@ export function PreventionPanel({ servers, onOpenScript }: PreventionPanelProps)
 
   useEffect(() => { refetch() }, [refetch])
 
+  // Scheduled analyses land via socket — prepend and notify
+  useEffect(() => {
+    const socket = getSharedSocket()
+    const onAnalysis = (record: AiAnalysis) => {
+      setAnalyses(prev => (prev.some(a => a.id === record.id) ? prev : [record, ...prev]))
+      setSelected(prev => (prev && prev.id === record.id ? prev : record))
+      const n = record.findings?.length ?? 0
+      if (record.error) toast.error('Análisis IA falló', { description: record.error.slice(0, 120) })
+      else if (n > 0) toast.info(`Análisis IA: ${n} hallazgo(s)`, { description: record.summary?.slice(0, 120) })
+    }
+    socket.on('ai:analysis', onAnalysis)
+    return () => {
+      socket.off('ai:analysis', onAnalysis)
+      releaseSharedSocket()
+    }
+  }, [])
+
   const handleAnalyze = async () => {
     setAnalyzing(true)
     setError(null)
@@ -158,6 +178,19 @@ AI_MODEL=claude-sonnet-5`}
             Analista: <span className="text-zinc-200 font-mono">{config?.model}</span>
             <span className="text-zinc-600"> vía {config?.provider}</span>
           </span>
+          {config?.schedule ? (
+            <span className="flex items-center gap-1 text-xs text-blue-400/90 bg-blue-900/20 border border-blue-900/50 px-2 py-0.5 rounded" title="Análisis programado (cron)">
+              <CalendarClock className="w-3 h-3" />
+              <span className="font-mono">{config.schedule}</span>
+            </span>
+          ) : (
+            <span className="text-xs text-zinc-600">· solo manual (configura AI_ANALYSIS_SCHEDULE para programarlo)</span>
+          )}
+          {config?.openAlerts && (
+            <span className="text-xs text-amber-400/80 border border-amber-900/50 bg-amber-900/20 px-2 py-0.5 rounded" title="Los hallazgos warning/critical abren alertas tipo ai">
+              abre alertas
+            </span>
+          )}
         </div>
         <Button
           onClick={handleAnalyze}

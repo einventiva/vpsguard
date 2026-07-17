@@ -1,6 +1,6 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
-const { parseFindings } = require('../services/aiAnalysis');
+const { parseFindings, groupFindingsForAlerts } = require('../services/aiAnalysis');
 const { buildOpenAIRequest, buildAnthropicRequest, extractOpenAIResponse, extractAnthropicResponse } = require('../services/aiProviders');
 const { compressRollup, formatServerStatus } = require('../services/aiSample');
 
@@ -42,6 +42,30 @@ describe('parseFindings', () => {
   test('empty findings array is valid (healthy fleet)', () => {
     const { findings } = parseFindings('{"summary":"ok","findings":[]}');
     assert.deepStrictEqual(findings, []);
+  });
+});
+
+describe('groupFindingsForAlerts', () => {
+  test('groups warning+critical by server, escalates severity, caps titles', () => {
+    const groups = groupFindingsForAlerts([
+      { severity: 'warning', server: 'prod', title: 'a' },
+      { severity: 'critical', server: 'prod', title: 'b' },
+      { severity: 'warning', server: 'prod', title: 'c' },
+      { severity: 'warning', server: 'prod', title: 'd' },
+      { severity: 'info', server: 'prod', title: 'ignored' },
+      { severity: 'warning', title: 'no-server' },
+    ]);
+    assert.equal(groups.prod.count, 4);
+    assert.equal(groups.prod.severity, 'critical');
+    assert.equal(groups.prod.titles.length, 3);
+    assert.equal(groups.fleet.count, 1);
+    assert.equal(groups.fleet.severity, 'warning');
+  });
+
+  test('info-only findings produce no groups', () => {
+    assert.deepStrictEqual(groupFindingsForAlerts([{ severity: 'info', server: 'qa', title: 'x' }]), {});
+    assert.deepStrictEqual(groupFindingsForAlerts([]), {});
+    assert.deepStrictEqual(groupFindingsForAlerts(null), {});
   });
 });
 

@@ -52,6 +52,7 @@ const TYPE_LABELS: Record<Alert['type'], string> = {
   flapping: 'FLAPPING',
   'pg-replication': 'PG REPL',
   script: 'SCRIPT',
+  ai: 'AI',
 }
 
 function AlertRow({ alert, serverName, onAck, suggestions, onOpenScript }: {
