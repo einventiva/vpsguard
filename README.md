@@ -292,6 +292,7 @@ You can create, edit, and delete scripts from the dashboard UI.
 | GET | `/api/ai/analyses/:id` | Full analysis including its input snapshot |
 | GET | `/api/ai/config` | AI module status (no secrets) |
 | GET | `/api/ai/models` | Models the configured provider/key allows |
+| POST | `/api/ai/interpret` | Interpret a script's output into a verdict |
 | PUT | `/api/ai/model` | Persist the selected model (empty = env default) |
 | GET | `/api/executions/latest` | Latest execution per script for a server |
 | GET | `/api/executions/:id` | Full execution record with stored output |
@@ -615,6 +616,7 @@ Puedes crear, editar y eliminar scripts desde la interfaz del dashboard.
 | GET | `/api/ai/analyses/:id` | Análisis completo incluyendo su snapshot de entrada |
 | GET | `/api/ai/config` | Estado del módulo IA (sin secretos) |
 | GET | `/api/ai/models` | Modelos que el proveedor/clave configurados permiten |
+| POST | `/api/ai/interpret` | Interpreta el output de un script en un veredicto |
 | PUT | `/api/ai/model` | Persiste el modelo elegido (vacío = default del env) |
 | GET | `/api/executions/latest` | Última ejecución por script para un servidor |
 | GET | `/api/executions/:id` | Registro completo con el output almacenado |

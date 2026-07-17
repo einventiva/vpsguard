@@ -335,6 +335,16 @@ export interface AiAnalysis {
   sample?: unknown
 }
 
+export interface AiInterpretation {
+  summary: string
+  severity: 'ok' | 'info' | 'warning' | 'critical'
+  points: string[]
+  action: string
+  model?: string
+  tokensIn?: number | null
+  tokensOut?: number | null
+}
+
 export interface AiConfig {
   configured: boolean
   provider: string | null
