@@ -16,6 +16,17 @@ const SCRIPT_TIMEOUT = parseInt(process.env.SCRIPT_TIMEOUT_MS, 10) || 600000;
 
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://localhost:5174,http://localhost:4173').split(',').map(s => s.trim());
 
+// AI analysis module: 'openai' covers any OpenAI-compatible endpoint
+// (LiteLLM, OpenAI, xAI, Ollama, …); 'anthropic' talks to the native
+// Messages API. Empty provider = module disabled.
+const AI_PROVIDER = (process.env.AI_PROVIDER || '').trim();
+const AI_BASE_URL = (process.env.AI_BASE_URL || '').trim().replace(/\/$/, '');
+const AI_API_KEY = process.env.AI_API_KEY || '';
+const AI_MODEL = process.env.AI_MODEL || '';
+const AI_MAX_TOKENS = parseInt(process.env.AI_MAX_TOKENS, 10) || 2500;
+const AI_TIMEOUT_MS = parseInt(process.env.AI_TIMEOUT_MS, 10) || 120000;
+const AI_KEEP_ANALYSES = parseInt(process.env.AI_KEEP_ANALYSES, 10) || 100;
+
 const ALERT_THRESHOLDS = {
   cpu: 80,
   memory: 85,
@@ -142,6 +153,7 @@ module.exports = {
   COMMAND_TIMEOUT,
   SCRIPT_TIMEOUT,
   CORS_ORIGINS,
+  AI_PROVIDER, AI_BASE_URL, AI_API_KEY, AI_MODEL, AI_MAX_TOKENS, AI_TIMEOUT_MS, AI_KEEP_ANALYSES,
   ALERT_THRESHOLDS,
   ALERT_SAMPLES_TO_OPEN,
   ALERT_SAMPLES_TO_RESOLVE,

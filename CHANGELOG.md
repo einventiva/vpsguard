@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.7.0] — 2026-07-17
+
+#### Added
+- **AI Analysis & Prevention module (A1)**: a new "Prevención" tab runs LLM-powered fleet analysis on demand. A compact pre-aggregated snapshot (status, active/recent alerts, 24h/7d trends from rollups, projections, PostgreSQL summary, failing scheduled scripts — never raw script outputs) is sent to a configurable provider: any **OpenAI-compatible** endpoint (LiteLLM, OpenAI, xAI/Grok, local Ollama) or the **native Anthropic API**. The model returns an executive summary and prioritized findings with concrete actions and suggested scripts (wired to the v1.6 alert→script bridge). Every analysis is persisted (`ai_analyses`) with token usage and duration; robust JSON parsing tolerates fences and prose; secrets stay in `.env` and never touch the UI. The AI recommends — it never executes anything
+
 ### [1.6.0] — 2026-07-17
 
 #### Added
@@ -122,6 +127,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.7.0] — 2026-07-17
+
+#### Agregado
+- **Módulo de Análisis y Prevención con IA (A1)**: la nueva pestaña "Prevención" ejecuta análisis de la flota con LLM bajo demanda. Se envía un snapshot compacto pre-agregado (estado, alertas activas/recientes, tendencias 24h/7d desde rollups, proyecciones, resumen PostgreSQL, scripts programados fallando — nunca outputs crudos de scripts) a un proveedor configurable: cualquier endpoint **OpenAI-compatible** (LiteLLM, OpenAI, xAI/Grok, Ollama local) o la **API nativa de Anthropic**. El modelo devuelve un resumen ejecutivo y hallazgos priorizados con acciones concretas y scripts sugeridos (conectados al puente alertas→scripts de v1.6). Cada análisis se persiste (`ai_analyses`) con tokens y duración; el parseo JSON tolera fences y prosa; los secretos viven en `.env` y nunca pasan por la UI. La IA recomienda — nunca ejecuta nada
 
 ### [1.6.0] — 2026-07-17
 

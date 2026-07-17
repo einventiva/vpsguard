@@ -10,6 +10,8 @@ import type {
   DockerContainer,
   ScriptResult,
   ScriptExecution,
+  AiAnalysis,
+  AiConfig,
   ServerData,
   ServerAlias,
   ApiResponse,
@@ -254,6 +256,24 @@ export const api = {
     const map: Record<string, ScriptExecution> = {}
     for (const e of response.executions || []) map[e.script_id] = e
     return map
+  },
+
+  // AI analysis module
+  async getAiConfig(): Promise<AiConfig> {
+    return fetchApi<AiConfig>('/ai/config')
+  },
+
+  async runAiAnalysis(): Promise<AiAnalysis> {
+    return fetchApi<AiAnalysis>('/ai/analyze', { method: 'POST' })
+  },
+
+  async getAiAnalyses(limit: number = 20): Promise<AiAnalysis[]> {
+    const response = await fetchApi<any>(`/ai/analyses?limit=${limit}`)
+    return response.analyses || []
+  },
+
+  async getAiAnalysis(id: number): Promise<AiAnalysis> {
+    return fetchApi<AiAnalysis>(`/ai/analyses/${id}`)
   },
 
   // History endpoints

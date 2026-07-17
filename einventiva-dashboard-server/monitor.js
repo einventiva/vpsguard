@@ -40,6 +40,7 @@ app.use('/api', require('./routes/scripts')(getServers));
 app.use('/api', require('./routes/servers')(getServers, setServers));
 app.use('/api', require('./routes/crontab')(getServers));
 app.use('/api', require('./routes/history')(getServers));
+app.use('/api', require('./routes/ai')(getServers));
 app.use('/api', require('./routes/alerts')());
 app.use('/api', require('./routes/thresholds')(getServers));
 app.use('/api', require('./routes/projections')(getServers));
