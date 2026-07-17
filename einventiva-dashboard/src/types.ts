@@ -15,6 +15,11 @@ export interface ServerStatus {
   uptime_seconds: number
   load_avg: number[]
   container_count: number
+  swap_percent: number
+  inodes_percent: number
+  failed_units: string[]
+  reboot_required: boolean
+  ssh_latency_ms: number | null
 }
 
 export interface DockerContainer {
@@ -80,7 +85,7 @@ export interface MetricEntry {
 export interface Alert {
   id: number
   server: string
-  type: 'cpu' | 'memory' | 'disk' | 'offline' | 'disk-eta' | 'cron' | 'pg-connections'
+  type: 'cpu' | 'memory' | 'disk' | 'offline' | 'disk-eta' | 'cron' | 'pg-connections' | 'inodes' | 'systemd' | 'ssl'
   severity: 'warning' | 'critical'
   message: string
   value: number | null

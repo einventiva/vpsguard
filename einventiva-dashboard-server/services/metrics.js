@@ -1,6 +1,6 @@
 const { log } = require('./logger');
 
-const METRICS_COMMAND = 'top -bn1 | head -5; echo "---SEPARATOR---"; free -m; echo "---SEPARATOR---"; df -h /; echo "---SEPARATOR---"; uptime; echo "---SEPARATOR---"; docker ps --format \'{{json .}}\'; echo "---SEPARATOR---"; ps aux --sort=-%cpu | head -16; echo "---SEPARATOR---"; docker stats --no-stream --format \'{{json .}}\' 2>/dev/null; echo "---SEPARATOR---"; nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 0';
+const METRICS_COMMAND = 'top -bn1 | head -5; echo "---SEPARATOR---"; free -m; echo "---SEPARATOR---"; df -h /; echo "---SEPARATOR---"; uptime; echo "---SEPARATOR---"; docker ps --format \'{{json .}}\'; echo "---SEPARATOR---"; ps aux --sort=-%cpu | head -16; echo "---SEPARATOR---"; docker stats --no-stream --format \'{{json .}}\' 2>/dev/null; echo "---SEPARATOR---"; nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo 0; echo "---SEPARATOR---"; df -i /; echo "---SEPARATOR---"; [ -f /var/run/reboot-required ] && echo yes || echo no; echo "---SEPARATOR---"; systemctl --failed --no-legend --plain 2>/dev/null | head -10';
 
 function parseCpuPercent(cpuData) {
   if (!cpuData || !cpuData.raw) return 0;
@@ -29,7 +29,7 @@ function parseSystemMetrics(output) {
     metrics.cpu = { error: 'Failed to parse CPU info' };
   }
 
-  // RAM
+  // RAM + swap (free -m emits both)
   try {
     const ramLines = sections[1].trim().split('\n');
     const memLine = ramLines.find(line => line.startsWith('Mem:'));
@@ -41,6 +41,12 @@ function parseSystemMetrics(output) {
         free: parseInt(parts[3]),
         unit: 'MB'
       };
+    }
+    const swapLine = ramLines.find(line => line.startsWith('Swap:'));
+    if (swapLine && metrics.memory) {
+      const parts = swapLine.split(/\s+/);
+      metrics.memory.swapTotal = parseInt(parts[1]) || 0;
+      metrics.memory.swapUsed = parseInt(parts[2]) || 0;
     }
   } catch (e) {
     metrics.memory = { error: 'Failed to parse memory info' };
@@ -134,6 +140,40 @@ function parseSystemMetrics(output) {
     }
   } catch (e) {
     metrics.cpuCores = 0;
+  }
+
+  // Inodes (section 8) — a disk can run out of inodes with plenty of
+  // free space; df -h never shows it
+  try {
+    if (sections[8]) {
+      const line = sections[8].trim().split('\n')[1];
+      if (line) {
+        const parts = line.split(/\s+/);
+        metrics.inodes = { percentUsed: parts[4] || '0%' };
+      }
+    }
+  } catch (e) {
+    metrics.inodes = { error: 'Failed to parse inode info' };
+  }
+
+  // Reboot required (section 9)
+  try {
+    if (sections[9]) {
+      metrics.rebootRequired = sections[9].trim() === 'yes';
+    }
+  } catch (e) {
+    metrics.rebootRequired = false;
+  }
+
+  // Failed systemd units (section 10) — plain format: "unit.service loaded failed failed ..."
+  try {
+    if (sections[10] !== undefined) {
+      metrics.failedUnits = sections[10].trim().split('\n')
+        .map(l => l.trim().split(/\s+/)[0])
+        .filter(u => u && u.includes('.'));
+    }
+  } catch (e) {
+    metrics.failedUnits = [];
   }
 
   return metrics;

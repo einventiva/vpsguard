@@ -1,6 +1,8 @@
 const notifier = require('node-notifier');
 const { parseCpuPercent } = require('./metrics');
 
+const INODE_THRESHOLD = 90;
+
 // Pure evaluation: which thresholds does this sample breach right now?
 // Lifecycle (open/resolve with hysteresis) lives in alertEngine.js.
 function evaluateBreaches(serverDisplayName, data, thresholds) {
@@ -50,6 +52,30 @@ function evaluateBreaches(serverDisplayName, data, thresholds) {
       message: `${serverDisplayName} Disk at ${diskPercent}%`,
       value: diskPercent,
       threshold: thresholds.disk,
+    });
+  }
+
+  // Inodes share the disk threshold semantics but not its per-server
+  // override — running out of inodes is critical at 90% regardless
+  const inodePercent = parseInt((parsed.inodes?.percentUsed || '0').replace('%', ''));
+  if (inodePercent > INODE_THRESHOLD) {
+    breaches.push({
+      type: 'inodes',
+      severity: 'critical',
+      message: `${serverDisplayName} Inodes at ${inodePercent}%`,
+      value: inodePercent,
+      threshold: INODE_THRESHOLD,
+    });
+  }
+
+  // Failed systemd units — a crashed service nobody restarted
+  if (Array.isArray(parsed.failedUnits) && parsed.failedUnits.length > 0) {
+    breaches.push({
+      type: 'systemd',
+      severity: 'warning',
+      message: `${serverDisplayName}: ${parsed.failedUnits.length} failed systemd unit(s): ${parsed.failedUnits.slice(0, 5).join(', ')}`,
+      value: parsed.failedUnits.length,
+      threshold: null,
     });
   }
 

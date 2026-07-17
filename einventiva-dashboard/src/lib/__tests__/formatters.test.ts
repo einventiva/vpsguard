@@ -40,6 +40,11 @@ describe('getStatusColor', () => {
     uptime_seconds: 86400,
     load_avg: [0.5, 0.3, 0.2],
     container_count: 3,
+    swap_percent: 0,
+    inodes_percent: 10,
+    failed_units: [],
+    reboot_required: false,
+    ssh_latency_ms: 100,
     ...overrides,
   })
 
