@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### [1.6.0] — 2026-07-17
 
 #### Added
+- **ANSI colors in script output**: tools like lynis, apt and docker emit terminal color codes that rendered as `[1;32m` garbage — the live output and the stored execution history now parse SGR sequences into real colors (foreground, background, bold, dim), with style state carried across streamed chunks; other control sequences are stripped
 - **Alert → script bridge**: scripts can be tagged with the alert types they help diagnose or remediate (`alert_types`, editable as chips in the editor; seeds pre-tagged — disk-usage/clean-logs/docker-prune for disk & disk-eta, docker-stats for cpu/memory/flapping, certbot-renew for ssl). Every **active** alert now shows shortcut buttons to its matching scripts (red if destructive); clicking one jumps to the Scripts tab with the script **and the alert's server** preselected. Detect → diagnose → remediate without leaving the dashboard — all v1.4 guards (sudo password, typed destructive confirmation) still apply
 
 ### [1.5.1] — 2026-07-17
@@ -125,6 +126,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### [1.6.0] — 2026-07-17
 
 #### Agregado
+- **Colores ANSI en el output de scripts**: herramientas como lynis, apt y docker emiten códigos de color de terminal que se veían como basura `[1;32m` — el output en vivo y el historial almacenado ahora parsean las secuencias SGR a colores reales (texto, fondo, bold, dim), con el estado de estilo cruzando chunks del stream; otras secuencias de control se eliminan
 - **Puente alertas → scripts**: los scripts pueden etiquetarse con los tipos de alerta que ayudan a diagnosticar o remediar (`alert_types`, editable como chips en el editor; seeds pre-etiquetados — disk-usage/clean-logs/docker-prune para disk y disk-eta, docker-stats para cpu/memory/flapping, certbot-renew para ssl). Cada alerta **activa** muestra ahora botones de acceso directo a sus scripts correspondientes (rojos si son destructivos); el clic salta a la pestaña Scripts con el script **y el servidor de la alerta** preseleccionados. Detectar → diagnosticar → remediar sin salir del dashboard — todas las guardas de v1.4 (password de sudo, confirmación destructiva tipeada) siguen aplicando
 
 ### [1.5.1] — 2026-07-17
