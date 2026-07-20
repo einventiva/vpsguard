@@ -47,6 +47,10 @@ const ALERT_SAMPLES_TO_RESOLVE = parseInt(process.env.ALERT_SAMPLES_TO_RESOLVE |
 const ALERT_WEBHOOK_URL = process.env.ALERT_WEBHOOK_URL || '';
 
 const METRICS_INTERVAL = 15000;
+// The status cache must outlive the poll that refreshes it. A TTL below
+// METRICS_INTERVAL leaves a dead window every cycle where readers see no
+// data at all — which the AI sample used to render as a fleet-wide outage.
+const STATUS_CACHE_TTL = METRICS_INTERVAL * 2;
 // Per-process/container detail is stored every Nth metrics cycle
 // (~60s): nobody diagnoses at 15s granularity and it grows ~35x
 // faster than the main series
@@ -165,6 +169,7 @@ module.exports = {
   ALERT_SAMPLES_TO_RESOLVE,
   ALERT_WEBHOOK_URL,
   METRICS_INTERVAL,
+  STATUS_CACHE_TTL,
   DETAIL_EVERY_CYCLES,
   PRUNE_INTERVAL,
   PRUNE_STARTUP_DELAY,
