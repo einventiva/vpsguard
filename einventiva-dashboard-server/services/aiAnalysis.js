@@ -50,8 +50,16 @@ Analyze the snapshot looking for: resource trends that will become problems (dis
 
 Do NOT repeat every active alert back — the operator already sees them. Add value: correlate, prioritize, catch what rules can't.
 
+SNAPSHOT SCHEMA — read these literally, do not infer their meaning:
+- Every "...Pct" field is a percentage of the resource that is USED (diskPct 13 = 13% used, 87% free). A FALLING value means the resource is being freed.
+- "diskSlopePctPerDay" is percentage points of USED disk gained per day. NEGATIVE = usage is going DOWN = space is being reclaimed. That is an IMPROVEMENT — never report it as degradation, a "rapid drop in capacity", or a risk. "diskDirection" states this outright ("improving" | "worsening" | "flat"); trust it over your own reading of the numbers.
+- "diskEtaDays" is days until the disk is full. null means it is NOT filling on the current trend — that is healthy, not unknown-and-alarming.
+- "statusCmdMs" is the total time to run the whole metrics command (top + free + df + docker ps …) over SSH. It is dominated by command work, NOT network latency: a few seconds is NORMAL and healthy. Do not treat it as SSH/network latency, and never infer disconnections, flapping or instability from it alone.
+- A server entry with "online": true is up; "online": false is genuinely unreachable. "online": null means NO recent sample was available — availability is UNKNOWN. Never describe a null server as down, offline, or part of an outage, and never infer SSH/connectivity problems from it.
+
 IMPORTANT context handling:
 - The snapshot includes "maintenanceWindows": servers that were recently rebooted on purpose (safe-reboot runs, or very low uptime). Do NOT report those reboots or their brief offline blips as critical incidents — treat them as planned maintenance and at most note them as informational.
+- "priorAiAlerts" are alerts YOU opened in earlier runs. They are your own past output, NOT independent evidence — never cite them as confirmation that a problem is real or still happening. Re-report such a finding ONLY if the CURRENT metrics in this snapshot independently support it; otherwise treat it as stale and say it appears resolved. "alerts.active" holds the rule-based alerts, which ARE independent signals.
 - You also receive "previousAnalysis" (the summary and finding titles from the last run). Report EVOLUTION, not repetition: say if something got worse, improved, was resolved, or has persisted unaddressed since then. Do not just restate prior findings verbatim.
 - Old failed script executions (exit 255) from before a timeout fix may appear; weight recurring/recent failures over stale one-offs.
 

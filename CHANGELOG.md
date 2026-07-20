@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.11.2] — 2026-07-20
+
+#### Fixed
+- **Analyses described a fleet that did not exist**: summaries reported a fleet-wide outage that never happened and called a large disk cleanup a *degradation*. Four separate defects fed the model bad input, and each one reinforced the others. (1) The status cache expired 5s before the poll that refreshes it, and a missing sample was rendered as `unreachable` — so roughly one analysis in three was handed a fleet where every server was down. The cache TTL now derives from the poll interval, and absent data reports `online: null` ("availability unknown") instead of asserting an outage. (2) Metrics were unlabeled, so falling disk usage read as falling capacity; fields now carry their unit (`diskPct`, `diskSlopePctPerDay`), a precomputed `diskDirection` states improving/worsening outright, and the prompt documents the schema. (3) `sshLatencyMs` was actually the round-trip of the whole metrics command — normal multi-second work time was reported as network latency and imminent disconnections; it is now `statusCmdMs` and the prompt explains it. (4) The sample fed the model its own prior `ai` alerts mixed in with rule-based ones, so a single false finding re-confirmed itself every run; they are now surfaced separately as `priorAiAlerts` and explicitly marked as the model's own past output, not evidence
+
 ### [1.11.1] — 2026-07-20
 
 #### Fixed
@@ -162,6 +167,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.11.2] — 2026-07-20
+
+#### Corregido
+- **Los análisis describían una flota que no existía**: los resúmenes reportaban una caída total que nunca ocurrió y calificaban de *degradación* una limpieza de disco enorme. Cuatro defectos distintos alimentaban al modelo con datos falsos, y cada uno reforzaba a los demás. (1) El caché de estado expiraba 5s antes del sondeo que lo refresca, y la ausencia de muestra se renderizaba como `unreachable` — así que ~1 de cada 3 análisis recibía una flota con todos los servidores caídos. El TTL ahora deriva del intervalo del poller, y la falta de datos reporta `online: null` ("disponibilidad desconocida") en vez de afirmar una caída. (2) Las métricas iban sin etiquetar, así que un uso de disco bajando se leía como capacidad cayendo; los campos ahora llevan su unidad (`diskPct`, `diskSlopePctPerDay`), un `diskDirection` precalculado indica mejora/empeoramiento explícitamente, y el prompt documenta el esquema. (3) `sshLatencyMs` era en realidad el round-trip del comando de métricas completo — un tiempo de trabajo normal de varios segundos se reportaba como latencia de red y desconexiones inminentes; ahora es `statusCmdMs` y el prompt lo explica. (4) La muestra le entregaba al modelo sus propias alertas `ai` previas mezcladas con las basadas en reglas, así que un solo hallazgo falso se auto-confirmaba en cada corrida; ahora van aparte como `priorAiAlerts`, marcadas como output pasado del propio modelo, no como evidencia
 
 ### [1.11.1] — 2026-07-20
 
