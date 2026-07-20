@@ -1,7 +1,8 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
 const { parseAnalysis, parseFindings, groupFindingsForAlerts, parseInterpretation } = require('../services/aiAnalysis');
-const { buildOpenAIRequest, buildAnthropicRequest, extractOpenAIResponse, extractAnthropicResponse } = require('../services/aiProviders');
+const { buildOpenAIRequest, buildAnthropicRequest, extractOpenAIResponse, extractAnthropicResponse, callLLM } = require('../services/aiProviders');
+const http = require('http');
 const { compressRollup, formatServerStatus, detectMaintenanceWindows } = require('../services/aiSample');
 
 describe('parseFindings', () => {
@@ -171,9 +172,62 @@ describe('provider request builders', () => {
 
   test('response extractors pull text and token usage', () => {
     const oa = extractOpenAIResponse({ choices: [{ message: { content: 'hi' } }], usage: { prompt_tokens: 10, completion_tokens: 5 } });
-    assert.deepStrictEqual(oa, { text: 'hi', tokensIn: 10, tokensOut: 5 });
+    assert.deepStrictEqual(oa, { text: 'hi', tokensIn: 10, tokensOut: 5, reasoningTokens: null, finishReason: null });
     const an = extractAnthropicResponse({ content: [{ type: 'text', text: 'hola' }], usage: { input_tokens: 7, output_tokens: 3 } });
     assert.deepStrictEqual(an, { text: 'hola', tokensIn: 7, tokensOut: 3 });
+  });
+
+  test('carries reasoning tokens and finish reason through', () => {
+    const oa = extractOpenAIResponse({
+      choices: [{ message: { content: '{"ok":true}' }, finish_reason: 'stop' }],
+      usage: { prompt_tokens: 10, completion_tokens: 80, completion_tokens_details: { reasoning_tokens: 30 } },
+    });
+    assert.equal(oa.reasoningTokens, 30);
+    assert.equal(oa.finishReason, 'stop');
+  });
+
+  // A reasoning model can spend the whole budget thinking and answer nothing.
+  // That must be named here, not surface later as "No JSON object".
+  test('empty content spent entirely on reasoning explains itself', () => {
+    assert.throws(
+      () => extractOpenAIResponse({
+        choices: [{ message: { content: '' }, finish_reason: 'length' }],
+        usage: { prompt_tokens: 11, completion_tokens: 50, completion_tokens_details: { reasoning_tokens: 50 } },
+      }),
+      /internal reasoning.*AI_MAX_TOKENS/s
+    );
+  });
+
+  test('empty content without reasoning tokens is passed through, not misreported', () => {
+    const oa = extractOpenAIResponse({ choices: [{ message: { content: '' } }], usage: { prompt_tokens: 5, completion_tokens: 0 } });
+    assert.equal(oa.text, '');
+  });
+});
+
+describe('callLLM timeout reporting', () => {
+  // A bare AbortError reads "This operation was aborted" and names neither the
+  // model nor the limit — useless when a slow model is the actual cause.
+  test('names the model and the timeout instead of the raw abort', async () => {
+    const server = http.createServer(() => { /* never responds */ });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    try {
+      await assert.rejects(
+        callLLM({
+          provider: 'openai', baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: 'k',
+          model: 'slow-model', maxTokens: 10, timeoutMs: 150, system: 'S', user: 'U',
+        }),
+        (err) => {
+          assert.match(err.message, /timed out after 150ms/);
+          assert.match(err.message, /slow-model/);
+          assert.match(err.message, /AI_TIMEOUT_MS/);
+          assert.doesNotMatch(err.message, /This operation was aborted/);
+          return true;
+        }
+      );
+    } finally {
+      server.close();
+    }
   });
 });
 

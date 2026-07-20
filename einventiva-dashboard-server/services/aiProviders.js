@@ -40,12 +40,30 @@ function buildAnthropicRequest({ baseUrl, apiKey, model, maxTokens, system, user
 }
 
 function extractOpenAIResponse(json) {
-  const text = json?.choices?.[0]?.message?.content;
+  const choice = json?.choices?.[0];
+  const text = choice?.message?.content;
   if (typeof text !== 'string') throw new Error('Unexpected OpenAI-compatible response shape');
+
+  const usage = json.usage || {};
+  const tokensOut = usage.completion_tokens ?? null;
+  const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? null;
+
+  // A heavy reasoning model can spend its whole completion budget on internal
+  // thinking and return empty content. Say so here — downstream this would
+  // otherwise surface as a baffling "No JSON object in model response".
+  if (!text.trim() && reasoningTokens > 0) {
+    throw new Error(
+      `Model returned no content: the entire ${tokensOut}-token completion budget went to internal reasoning ` +
+      `(${reasoningTokens} reasoning tokens). Raise AI_MAX_TOKENS or pick a model that reasons less.`
+    );
+  }
+
   return {
     text,
-    tokensIn: json.usage?.prompt_tokens ?? null,
-    tokensOut: json.usage?.completion_tokens ?? null,
+    tokensIn: usage.prompt_tokens ?? null,
+    tokensOut,
+    reasoningTokens,
+    finishReason: choice?.finish_reason ?? null,
   };
 }
 
@@ -64,8 +82,9 @@ async function callLLM({ provider, baseUrl, apiKey, model, maxTokens, timeoutMs,
     ? buildAnthropicRequest({ baseUrl, apiKey, model, maxTokens, system, user })
     : buildOpenAIRequest({ baseUrl, apiKey, model, maxTokens, system, user });
 
+  const effectiveTimeout = timeoutMs || 120000;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs || 120000);
+  const timer = setTimeout(() => controller.abort(), effectiveTimeout);
   try {
     const res = await fetch(req.url, {
       method: 'POST',
@@ -79,6 +98,17 @@ async function callLLM({ provider, baseUrl, apiKey, model, maxTokens, timeoutMs,
     }
     const json = JSON.parse(raw);
     return provider === 'anthropic' ? extractAnthropicResponse(json) : extractOpenAIResponse(json);
+  } catch (error) {
+    // The bare AbortError reads "This operation was aborted", which tells the
+    // operator nothing. Name the model and the limit that was hit.
+    if (error?.name === 'AbortError') {
+      const limit = effectiveTimeout >= 1000 ? `${Math.round(effectiveTimeout / 1000)}s` : `${effectiveTimeout}ms`;
+      throw new Error(
+        `LLM request timed out after ${limit} (model '${model}'). ` +
+        `Heavy reasoning models often need longer — raise AI_TIMEOUT_MS or pick a faster model.`
+      );
+    }
+    throw error;
   } finally {
     clearTimeout(timer);
   }
