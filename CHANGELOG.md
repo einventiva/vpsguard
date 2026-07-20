@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.11.1] — 2026-07-20
+
+#### Fixed
+- **Opaque AI failures when a reasoning model exhausts its budget or times out**: picking a heavy reasoning model in the selector could break analyses with nothing but `This operation was aborted` (the bare `AbortError`, after exactly the timeout) or a misleading `No JSON object in model response` — neither pointing at the cause, which is that the model spends its whole completion budget on internal reasoning and never emits an answer. A timeout now names the model and the limit it hit and suggests raising `AI_TIMEOUT_MS`; an empty response whose completion budget went to reasoning now says exactly that and points at `AI_MAX_TOKENS` or a lighter model. `reasoning_tokens` and `finish_reason` are carried through and logged on every run, so the squeeze is visible before it becomes a failure
+
 ### [1.11.0] — 2026-07-20
 
 #### Added
@@ -157,6 +162,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.11.1] — 2026-07-20
+
+#### Corregido
+- **Fallos opacos de IA cuando un modelo de razonamiento agota su presupuesto o excede el timeout**: elegir un modelo de razonamiento pesado en el selector podía romper los análisis mostrando solo `This operation was aborted` (el `AbortError` crudo, justo al cumplirse el timeout) o un engañoso `No JSON object in model response` — ninguno señalaba la causa real: el modelo gasta todo su presupuesto de tokens en razonamiento interno y nunca emite respuesta. Ahora un timeout nombra el modelo y el límite alcanzado y sugiere subir `AI_TIMEOUT_MS`; una respuesta vacía cuyo presupuesto se fue en razonamiento lo dice explícitamente y apunta a `AI_MAX_TOKENS` o a un modelo más ligero. `reasoning_tokens` y `finish_reason` se propagan y se registran en cada corrida, así el estrujón se ve antes de convertirse en falla
 
 ### [1.11.0] — 2026-07-20
 
