@@ -291,7 +291,7 @@ async function runAnalysis(getServers, { model: modelOverride } = {}) {
 
     let record;
     try {
-      const { text, tokensIn, tokensOut } = await callLLM({
+      const { text, tokensIn, tokensOut, reasoningTokens, finishReason } = await callLLM({
         provider: AI_PROVIDER, baseUrl: AI_BASE_URL, apiKey: AI_API_KEY,
         model, maxTokens: AI_MAX_TOKENS, timeoutMs: AI_TIMEOUT_MS,
         system, user: userPayload,
@@ -303,7 +303,11 @@ async function runAnalysis(getServers, { model: modelOverride } = {}) {
         actionPlan: JSON.stringify(actionPlan),
         tokensIn, tokensOut, durationMs: Date.now() - startedAt, error: null,
       });
-      log('AI analysis done', { model, findings: findings.length, planSteps: actionPlan.length, tokensIn, tokensOut, durationMs: record.duration_ms });
+      log('AI analysis done', {
+        model, findings: findings.length, planSteps: actionPlan.length,
+        tokensIn, tokensOut, reasoningTokens, finishReason,
+        durationMs: record.duration_ms,
+      });
     } catch (err) {
       record = db.insertAiAnalysis({
         timestamp, provider: AI_PROVIDER, model,
