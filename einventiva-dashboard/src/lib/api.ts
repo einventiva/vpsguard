@@ -11,6 +11,7 @@ import type {
   ScriptResult,
   ScriptExecution,
   AiAnalysis,
+  AiStepState,
   AiConfig,
   AiInterpretation,
   ServerData,
@@ -275,9 +276,26 @@ export const api = {
   },
 
   // Interpret a script output into an actionable verdict (by execution
-  // id, or inline output)
-  async interpretOutput(payload: { executionId?: number; script?: string; server?: string; output?: string; context?: string }): Promise<AiInterpretation> {
+  // id, or inline output). Passing analysisId + stepIndex attaches the
+  // verdict back to that action-plan step and closes its loop.
+  async interpretOutput(payload: {
+    executionId?: number
+    script?: string
+    server?: string
+    output?: string
+    context?: string
+    analysisId?: number
+    stepIndex?: number
+  }): Promise<AiInterpretation> {
     return fetchApi<AiInterpretation>('/ai/interpret', { method: 'POST', body: JSON.stringify(payload) })
+  },
+
+  // Manually move a step through its lifecycle
+  async setAiStepStatus(analysisId: number, stepIndex: number, status: AiStepState, note?: string): Promise<AiAnalysis> {
+    return fetchApi<AiAnalysis>(`/ai/analyses/${analysisId}/steps/${stepIndex}`, {
+      method: 'PUT',
+      body: JSON.stringify({ status, note }),
+    })
   },
 
   // Optional `model` runs this analysis with a one-off model

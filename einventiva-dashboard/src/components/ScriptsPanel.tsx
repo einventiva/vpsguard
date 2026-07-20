@@ -46,7 +46,7 @@ interface ScriptsPanelProps {
   servers: Record<string, ServerInfo>
   serverKeys: string[]
   // Alert → script bridge: preselect a script + server on mount
-  initialTarget?: { script: string; server: string; context?: string } | null
+  initialTarget?: { script: string; server: string; context?: string; origin?: { analysisId: number; stepIndex: number } } | null
   onTargetConsumed?: () => void
 }
 
@@ -61,7 +61,10 @@ const INTERPRET_SEV: Record<AiInterpretation['severity'], { color: string; badge
 // and stored history. Sends output (by execution id when available) to
 // the AI module and renders the verdict inline.
 function InterpretBlock({ payload, aiConfigured }: {
-  payload: { executionId?: number; script?: string; server?: string; output?: string; context?: string }
+  payload: {
+    executionId?: number; script?: string; server?: string; output?: string; context?: string
+    analysisId?: number; stepIndex?: number
+  }
   aiConfigured: boolean
 }) {
   const [loading, setLoading] = useState(false)
@@ -184,7 +187,13 @@ export function ScriptsPanel({
   const [aiConfigured, setAiConfigured] = useState(false)
   // Why the current script was opened via the alert/plan bridge — fed to
   // the AI interpretation so its verdict reconciles with that concern
-  const [bridge, setBridge] = useState<{ script: string; context: string } | null>(null)
+  const [bridge, setBridge] = useState<{
+    script: string
+    context: string
+    origin?: { analysisId: number; stepIndex: number }
+  } | null>(null)
+  const bridgeRef = useRef<typeof bridge>(null)
+  useEffect(() => { bridgeRef.current = bridge }, [bridge])
 
   // Detail/confirmation state
   const [selected, setSelected] = useState<ScriptResult | null>(null)
@@ -249,12 +258,19 @@ export function ScriptsPanel({
       })
     }
 
-    const onDone = ({ code, server: srv }: { code: number; script: string; server: string }) => {
+    const onDone = ({ code, script: doneScript, server: srv }: { code: number; script: string; server: string }) => {
       setRuns(prev => {
         const run = prev[srv]
         if (!run) return prev
         return { ...prev, [srv]: { ...run, executing: false, exitCode: code } }
       })
+      // Launched from an action-plan step? Record that it ran. It stays on the
+      // active list until the AI verifies it or the operator closes it.
+      const origin = bridgeRef.current?.origin
+      if (origin && bridgeRef.current?.script === doneScript) {
+        api.setAiStepStatus(origin.analysisId, origin.stepIndex, 'applied')
+          .catch(err => console.error('Failed to mark action step as applied:', err))
+      }
       refreshRef.current()
     }
 
@@ -336,7 +352,7 @@ export function ScriptsPanel({
     const target = pendingTarget.current
     const match = scripts.find(s => s.id === target.script)
     if (match) setSelected(match)
-    if (target.context) setBridge({ script: target.script, context: target.context })
+    if (target.context) setBridge({ script: target.script, context: target.context, origin: target.origin })
     pendingTarget.current = null
     onTargetConsumed?.()
   }, [scripts])
@@ -1060,6 +1076,8 @@ export function ScriptsPanel({
                       server,
                       output: currentRun.output.map(c => c.data).join(''),
                       context: bridge && selected?.id === bridge.script ? bridge.context : undefined,
+                      analysisId: bridge && selected?.id === bridge.script ? bridge.origin?.analysisId : undefined,
+                      stepIndex: bridge && selected?.id === bridge.script ? bridge.origin?.stepIndex : undefined,
                     }}
                   />
                 )}

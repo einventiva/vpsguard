@@ -32,6 +32,7 @@ import {
   Bell,
   Sparkles,
 } from 'lucide-react'
+import type { OpenScript, ScriptOrigin } from '@/components/PreventionPanel'
 import { PreventionPanel } from '@/components/PreventionPanel'
 
 type TabType = 'overview' | 'alerts' | 'prevention' | 'docker' | 'postgres' | 'scripts' | 'crontab' | 'logs' | 'servers' | 'serverDetail'
@@ -39,7 +40,7 @@ type TabType = 'overview' | 'alerts' | 'prevention' | 'docker' | 'postgres' | 's
 const navItems: Array<{ id: TabType; label: string; icon: React.ReactNode }> = [
   { id: 'overview', label: 'Overview', icon: <Activity className="w-4 h-4" /> },
   { id: 'alerts', label: 'Alerts', icon: <Bell className="w-4 h-4" /> },
-  { id: 'prevention', label: 'Prevención', icon: <Sparkles className="w-4 h-4" /> },
+  { id: 'prevention', label: 'Prevention', icon: <Sparkles className="w-4 h-4" /> },
   { id: 'docker', label: 'Docker', icon: <Container className="w-4 h-4" /> },
   { id: 'postgres', label: 'PostgreSQL', icon: <Database className="w-4 h-4" /> },
   { id: 'scripts', label: 'Scripts', icon: <Terminal className="w-4 h-4" /> },
@@ -71,9 +72,16 @@ function App() {
   // target server preselected (suggestion buttons on alert rows)
   // `context` carries WHY the script was suggested (the finding/step/alert)
   // so a later AI interpretation reconciles with it instead of contradicting
-  const [scriptTarget, setScriptTarget] = useState<{ script: string; server: string; context?: string } | null>(null)
-  const openScript = (script: string, server: string, context?: string) => {
-    setScriptTarget({ script, server, context })
+  // `origin` links back to the action-plan step that suggested it, so the AI
+  // interpretation can close that step's loop
+  const [scriptTarget, setScriptTarget] = useState<{
+    script: string
+    server: string
+    context?: string
+    origin?: ScriptOrigin
+  } | null>(null)
+  const openScript: OpenScript = (script, server, context, origin) => {
+    setScriptTarget({ script, server, context, origin })
     setActiveTab('scripts')
   }
 

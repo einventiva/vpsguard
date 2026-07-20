@@ -33,8 +33,14 @@ Respond with ONLY a JSON object, no markdown fences, in this exact shape:
   "summary": "1-2 sentence verdict in Spanish; if context was given, reference it (confirms/rules out/inconclusive)",
   "severity": "ok" | "info" | "warning" | "critical",
   "points": ["key observation in Spanish", "..."],
-  "action": "concrete recommended action in Spanish, or 'Ninguna — todo en orden.' if healthy"
+  "action": "concrete recommended action in Spanish, or 'Ninguna — todo en orden.' if healthy",
+  "resolved": "yes" | "no" | "unclear"
 }
+
+"resolved" answers ONLY this: does this output show the concern in "context" is settled and the step can be closed?
+- "yes"     — the output verifies the concern is handled or was never real (clean verification counts as yes).
+- "no"      — the output shows the concern is still present and the step still needs work.
+- "unclear" — the output cannot answer it (notably the point-in-time-vs-trend mismatch above), or no context was given.
 
 Keep points to the few that matter (max ~6). Never invent data not present in the output.`;
 
@@ -156,11 +162,22 @@ function publicConfig() {
   };
 }
 
-// A stored row as clients consume it: findings/actionPlan parsed, sample optional
-function toClientShape(row, { includeSample = false } = {}) {
+// A stored row as clients consume it: findings/actionPlan parsed, sample optional.
+// `statusRows` lets a list caller pass pre-fetched step state (avoids N+1).
+function toClientShape(row, { includeSample = false, statusRows } = {}) {
   if (!row) return row;
   const safeParse = (s) => { try { return s ? JSON.parse(s) : null; } catch (_) { return null; } };
+  const rows = statusRows ?? db.getActionStatuses(row.id);
+  const stepStatuses = (rows || []).map(r => ({
+    stepIndex: r.step_index,
+    status: r.status,
+    executionId: r.execution_id,
+    verdict: safeParse(r.verdict),
+    note: r.note,
+    updatedAt: r.updated_at,
+  }));
   const out = {
+    stepStatuses,
     id: row.id,
     timestamp: row.timestamp,
     provider: row.provider,
@@ -207,6 +224,7 @@ function previousAnalysisDigest() {
 }
 
 const VALID_INTERPRET_SEV = new Set(['ok', 'info', 'warning', 'critical']);
+const VALID_RESOLVED = new Set(['yes', 'no', 'unclear']);
 
 function parseInterpretation(text) {
   let raw = String(text || '').trim();
@@ -223,6 +241,7 @@ function parseInterpretation(text) {
       .filter(p => typeof p === 'string' && p.trim())
       .map(p => p.slice(0, 400)).slice(0, 8),
     action: typeof obj.action === 'string' ? obj.action.slice(0, 500) : '',
+    resolved: VALID_RESOLVED.has(obj.resolved) ? obj.resolved : 'unclear',
   };
 }
 
