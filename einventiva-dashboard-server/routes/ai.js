@@ -75,7 +75,7 @@ function createRouter(getServers, io) {
       if (Date.now() - lastInterpretAt < 5000) {
         return res.status(429).json({ error: 'Rate limited — wait a few seconds between interpretations' });
       }
-      let { script, server, output, context, executionId } = req.body || {};
+      let { script, server, output, context, executionId, analysisId, stepIndex } = req.body || {};
       if (executionId != null) {
         const exec = db.getExecution(parseInt(executionId));
         if (!exec) return res.status(404).json({ error: `Execution '${executionId}' not found` });
@@ -88,6 +88,27 @@ function createRouter(getServers, io) {
       }
       lastInterpretAt = Date.now();
       const result = await interpretOutput({ script, server, output, context });
+
+      // Came from an action-plan step? Attach the verdict and close the loop.
+      // A verdict of "no" keeps the step open — it was applied but not settled.
+      if (analysisId != null && stepIndex != null) {
+        const aid = parseInt(analysisId);
+        const idx = parseInt(stepIndex);
+        if (Number.isInteger(aid) && Number.isInteger(idx) && db.getAiAnalysis(aid)) {
+          db.setActionStatus({
+            analysisId: aid,
+            stepIndex: idx,
+            status: result.resolved === 'yes' ? 'verified' : 'applied',
+            executionId: executionId != null ? parseInt(executionId) : undefined,
+            verdict: JSON.stringify({
+              summary: result.summary,
+              severity: result.severity,
+              resolved: result.resolved,
+              at: new Date().toISOString(),
+            }),
+          });
+        }
+      }
       res.json(result);
     } catch (error) {
       if (/not configured/.test(error.message)) {
@@ -99,7 +120,36 @@ function createRouter(getServers, io) {
 
   router.get('/ai/analyses', (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 20, 100);
-    res.json({ analyses: db.getAiAnalyses(limit).map(r => toClientShape(r)) });
+    const rows = db.getAiAnalyses(limit);
+    const byAnalysis = db.getActionStatusesFor(rows.map(r => r.id));
+    res.json({ analyses: rows.map(r => toClientShape(r, { statusRows: byAnalysis[r.id] || [] })) });
+  });
+
+  // Manual step lifecycle: mark applied / dismissed / back to pending.
+  router.put('/ai/analyses/:id/steps/:index', (req, res) => {
+    const id = parseInt(req.params.id);
+    const index = parseInt(req.params.index);
+    if (!Number.isInteger(id) || !Number.isInteger(index) || index < 0) {
+      return res.status(400).json({ error: 'Invalid analysis id or step index' });
+    }
+    const row = db.getAiAnalysis(id);
+    if (!row) return res.status(404).json({ error: `Analysis '${req.params.id}' not found` });
+
+    const plan = (() => { try { return JSON.parse(row.action_plan) || []; } catch (_) { return []; } })();
+    if (index >= plan.length) {
+      return res.status(404).json({ error: `Step ${index} not found in analysis ${id}` });
+    }
+
+    const { status, note } = req.body || {};
+    if (!['pending', 'applied', 'verified', 'dismissed'].includes(status)) {
+      return res.status(400).json({ error: 'status must be one of: pending, applied, verified, dismissed' });
+    }
+    try {
+      db.setActionStatus({ analysisId: id, stepIndex: index, status, note });
+      res.json(toClientShape(db.getAiAnalysis(id)));
+    } catch (error) {
+      handleError(res, error, 'Failed to update step status');
+    }
   });
 
   router.get('/ai/analyses/:id', (req, res) => {
