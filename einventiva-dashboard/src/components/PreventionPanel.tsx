@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { toast } from 'sonner'
-import type { AiAnalysis, AiActionStep, AiConfig, AiFinding, ServerInfo } from '@/types'
+import type { AiAnalysis, AiActionStep, AiConfig, AiFinding, AiStepStatus, AiStepState, ServerInfo } from '@/types'
 import { api } from '@/lib/api'
 import { getSharedSocket, releaseSharedSocket } from '@/lib/socket'
 import { formatRelativeTime, formatDuration } from '@/lib/formatters'
@@ -31,11 +31,18 @@ import {
   TrendingUp,
   TrendingDown,
   ArrowRightCircle,
+  RotateCcw,
+  Check,
+  X,
 } from 'lucide-react'
+
+// Where a script was launched from, so the interpretation can close that step's loop
+export type ScriptOrigin = { analysisId: number; stepIndex: number }
+export type OpenScript = (script: string, server: string, context?: string, origin?: ScriptOrigin) => void
 
 interface PreventionPanelProps {
   servers: Record<string, ServerInfo>
-  onOpenScript?: (script: string, server: string, context?: string) => void
+  onOpenScript?: OpenScript
 }
 
 const TREND_STYLE: Record<NonNullable<AiFinding['trend']>, { label: string; icon: typeof TrendingUp; className: string }> = {
@@ -60,7 +67,7 @@ const SEVERITY_STYLE: Record<AiFinding['severity'], { icon: typeof Info; color: 
 function FindingRow({ finding, serverName, onOpenScript }: {
   finding: AiFinding
   serverName: string
-  onOpenScript?: (script: string, server: string, context?: string) => void
+  onOpenScript?: OpenScript
 }) {
   const style = SEVERITY_STYLE[finding.severity]
   const Icon = style.icon
@@ -104,57 +111,200 @@ function FindingRow({ finding, serverName, onOpenScript }: {
   )
 }
 
-function ActionPlan({ steps, serverName, onOpenScript }: {
-  steps: AiActionStep[]
+const VERDICT_STYLE: Record<'yes' | 'no' | 'unclear', { label: string; className: string }> = {
+  yes: { label: 'resuelto', className: 'text-green-400 border-green-900/50 bg-green-900/20' },
+  no: { label: 'sigue pendiente', className: 'text-amber-400 border-amber-900/50 bg-amber-900/20' },
+  unclear: { label: 'inconclusivo', className: 'text-zinc-400 border-zinc-700 bg-zinc-800/40' },
+}
+
+// Only an explicit outcome closes a step. `applied` means "the script ran but
+// nothing confirmed it settled the concern", so it stays on the active list
+// carrying the AI's take — you close it yourself, or the AI verifies it.
+function isClosed(st?: AiStepStatus): boolean {
+  return st?.status === 'verified' || st?.status === 'dismissed'
+}
+
+function StepRow({ step, index, status, analysisId, serverName, onOpenScript, onSetStatus, busy }: {
+  step: AiActionStep
+  index: number
+  status?: AiStepStatus
+  analysisId: number
   serverName: (key: string) => string
-  onOpenScript?: (script: string, server: string, context?: string) => void
+  onOpenScript?: OpenScript
+  onSetStatus: (index: number, status: AiStepState) => void
+  busy: boolean
 }) {
+  const closed = isClosed(status)
+  const verdict = status?.verdict
+  return (
+    <li className="flex gap-2.5 text-sm group">
+      <span className="text-zinc-600 font-mono text-xs mt-0.5 flex-shrink-0">{index + 1}.</span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-start gap-2 flex-wrap">
+          <span className={closed ? 'text-zinc-500 line-through' : 'text-zinc-200'}>{step.step}</span>
+          {step.server && step.server !== 'fleet' && (
+            <span className="text-[10px] font-mono text-zinc-500">[{serverName(step.server)}]</span>
+          )}
+          {status && status.status !== 'pending' && (
+            <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 text-zinc-400 bg-zinc-800/40">
+              {status.status === 'dismissed' ? 'descartado' : status.status === 'verified' ? 'verificado' : 'aplicado'}
+            </span>
+          )}
+          {verdict && (
+            <span
+              className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border ${VERDICT_STYLE[verdict.resolved].className}`}
+              title={verdict.summary}
+            >
+              <Sparkles className="w-2.5 h-2.5" /> IA: {VERDICT_STYLE[verdict.resolved].label}
+            </span>
+          )}
+        </div>
+        {step.dependsOn && !closed && (
+          <p className="text-xs text-zinc-500 mt-0.5">↳ primero: {step.dependsOn}</p>
+        )}
+        {verdict && (
+          <p className="text-xs text-zinc-400 mt-1 border-l-2 border-zinc-700 pl-2">{verdict.summary}</p>
+        )}
+        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+          {step.script && onOpenScript && !closed && (
+            <button
+              onClick={() => onOpenScript(
+                step.script!,
+                step.server,
+                `Este script corresponde al paso del plan de acción: "${step.step}"${step.dependsOn ? ` (primero: ${step.dependsOn})` : ''}.`,
+                { analysisId, stepIndex: index },
+              )}
+              className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border font-mono border-zinc-700 text-blue-400 hover:bg-blue-900/20 hover:border-blue-800 transition-colors"
+              title={`Abrir ${step.script}`}
+            >
+              <Wrench className="w-3 h-3" /> {step.script}
+            </button>
+          )}
+          {closed ? (
+            <button
+              onClick={() => onSetStatus(index, 'pending')}
+              disabled={busy}
+              className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700 transition-colors disabled:opacity-50"
+            >
+              <RotateCcw className="w-3 h-3" /> reabrir
+            </button>
+          ) : (
+            <>
+              <button
+                onClick={() => onSetStatus(index, 'verified')}
+                disabled={busy}
+                className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-zinc-700 text-green-400 hover:bg-green-900/20 hover:border-green-800 transition-colors disabled:opacity-50"
+                title="Ya lo hice y quedó resuelto (por ejemplo, a mano por SSH)"
+              >
+                <Check className="w-3 h-3" /> hecho
+              </button>
+              <button
+                onClick={() => onSetStatus(index, 'dismissed')}
+                disabled={busy}
+                className="flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded border border-zinc-800 text-zinc-500 hover:text-zinc-300 hover:border-zinc-700 transition-colors disabled:opacity-50"
+                title="No aplica / no lo voy a hacer"
+              >
+                <X className="w-3 h-3" /> descartar
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </li>
+  )
+}
+
+function ActionPlan({ steps, statuses, analysisId, serverName, onOpenScript, onSetStatus, busy }: {
+  steps: AiActionStep[]
+  statuses: Map<number, AiStepStatus>
+  analysisId: number
+  serverName: (key: string) => string
+  onOpenScript?: OpenScript
+  onSetStatus: (index: number, status: AiStepState) => void
+  busy: boolean
+}) {
+  const [doneOpen, setDoneOpen] = useState(false)
   const horizons: AiActionStep['horizon'][] = ['now', 'week', 'watch']
+
+  // Keep the original index — it is the key the step state is stored under
+  const indexed = steps.map((step, index) => ({ step, index, status: statuses.get(index) }))
+  const active = indexed.filter(s => !isClosed(s.status))
+  const done = indexed.filter(s => isClosed(s.status))
+
   return (
     <Card className="border-zinc-700 bg-zinc-900/50 overflow-hidden">
       <div className="bg-zinc-900 border-b border-zinc-700 px-4 py-3 flex items-center gap-2">
         <ListChecks className="w-4 h-4 text-purple-400" />
-        <span className="text-xs font-semibold text-zinc-300">Plan de acción ({steps.length})</span>
+        <span className="text-xs font-semibold text-zinc-300">
+          Plan de acción — {active.length} pendiente{active.length === 1 ? '' : 's'}
+          {done.length > 0 && <span className="text-zinc-500"> de {steps.length}</span>}
+        </span>
       </div>
       <div className="p-4 space-y-4">
-        {horizons.map(h => {
-          const group = steps.filter(s => s.horizon === h)
-          if (group.length === 0) return null
-          const hs = HORIZON_STYLE[h]
-          const HIcon = hs.icon
-          return (
-            <div key={h}>
-              <div className={`flex items-center gap-1.5 mb-2 text-xs font-semibold uppercase tracking-wider ${hs.className}`}>
-                <HIcon className="w-3.5 h-3.5" /> {hs.label}
+        {active.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-6 text-zinc-500 gap-2">
+            <CheckCircle className="w-6 h-6 text-green-600" />
+            <p className="text-sm">Plan completado — nada pendiente.</p>
+          </div>
+        ) : (
+          horizons.map(h => {
+            const group = active.filter(s => s.step.horizon === h)
+            if (group.length === 0) return null
+            const hs = HORIZON_STYLE[h]
+            const HIcon = hs.icon
+            return (
+              <div key={h}>
+                <div className={`flex items-center gap-1.5 mb-2 text-xs font-semibold uppercase tracking-wider ${hs.className}`}>
+                  <HIcon className="w-3.5 h-3.5" /> {hs.label}
+                </div>
+                <ol className="space-y-2.5">
+                  {group.map(({ step, index, status }) => (
+                    <StepRow
+                      key={index}
+                      step={step}
+                      index={index}
+                      status={status}
+                      analysisId={analysisId}
+                      serverName={serverName}
+                      onOpenScript={onOpenScript}
+                      onSetStatus={onSetStatus}
+                      busy={busy}
+                    />
+                  ))}
+                </ol>
               </div>
-              <ol className="space-y-2">
-                {group.map((s, i) => (
-                  <li key={i} className="flex gap-2.5 text-sm">
-                    <span className="text-zinc-600 font-mono text-xs mt-0.5 flex-shrink-0">{i + 1}.</span>
-                    <div className="flex-1 min-w-0">
-                      <span className="text-zinc-200">{s.step}</span>
-                      {s.server && s.server !== 'fleet' && (
-                        <span className="ml-1.5 text-[10px] font-mono text-zinc-500">[{serverName(s.server)}]</span>
-                      )}
-                      {s.dependsOn && (
-                        <p className="text-xs text-zinc-500 mt-0.5">↳ primero: {s.dependsOn}</p>
-                      )}
-                      {s.script && onOpenScript && (
-                        <button
-                          onClick={() => onOpenScript(s.script!, s.server, `Este script corresponde al paso del plan de acción: "${s.step}"${s.dependsOn ? ` (primero: ${s.dependsOn})` : ''}.`)}
-                          className="flex items-center gap-1 mt-1 text-[11px] px-1.5 py-0.5 rounded border font-mono border-zinc-700 text-blue-400 hover:bg-blue-900/20 hover:border-blue-800 transition-colors"
-                          title={`Abrir ${s.script}`}
-                        >
-                          <Wrench className="w-3 h-3" /> {s.script}
-                        </button>
-                      )}
-                    </div>
-                  </li>
+            )
+          })
+        )}
+
+        {done.length > 0 && (
+          <div className="border-t border-zinc-800 pt-3">
+            <button
+              onClick={() => setDoneOpen(o => !o)}
+              className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500 hover:text-zinc-300 transition-colors"
+            >
+              {doneOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+              Completado ({done.length})
+            </button>
+            {doneOpen && (
+              <ol className="space-y-2.5 mt-2.5">
+                {done.map(({ step, index, status }) => (
+                  <StepRow
+                    key={index}
+                    step={step}
+                    index={index}
+                    status={status}
+                    analysisId={analysisId}
+                    serverName={serverName}
+                    onOpenScript={onOpenScript}
+                    onSetStatus={onSetStatus}
+                    busy={busy}
+                  />
                 ))}
               </ol>
-            </div>
-          )
-        })}
+            )}
+          </div>
+        )}
       </div>
     </Card>
   )
@@ -170,6 +320,24 @@ export function PreventionPanel({ servers, onOpenScript }: PreventionPanelProps)
   const [analyzing, setAnalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [savingStep, setSavingStep] = useState(false)
+
+  // Replace an analysis in both the list and the selection (they share ids)
+  const replaceAnalysis = useCallback((updated: AiAnalysis) => {
+    setAnalyses(prev => prev.map(a => (a.id === updated.id ? { ...a, ...updated } : a)))
+    setSelected(prev => (prev && prev.id === updated.id ? { ...prev, ...updated } : prev))
+  }, [])
+
+  const handleSetStepStatus = useCallback(async (analysisId: number, stepIndex: number, status: AiStepState) => {
+    setSavingStep(true)
+    try {
+      replaceAnalysis(await api.setAiStepStatus(analysisId, stepIndex, status))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'No se pudo actualizar el paso')
+    } finally {
+      setSavingStep(false)
+    }
+  }, [replaceAnalysis])
 
   const refetch = useCallback(async () => {
     try {
@@ -368,7 +536,15 @@ AI_MODEL=claude-sonnet-5`}
 
           {/* Action plan */}
           {latest.actionPlan && latest.actionPlan.length > 0 && (
-            <ActionPlan steps={latest.actionPlan} serverName={serverName} onOpenScript={onOpenScript} />
+            <ActionPlan
+              steps={latest.actionPlan}
+              statuses={new Map((latest.stepStatuses ?? []).map(s => [s.stepIndex, s]))}
+              analysisId={latest.id}
+              serverName={serverName}
+              onOpenScript={onOpenScript}
+              onSetStatus={(index, status) => handleSetStepStatus(latest.id, index, status)}
+              busy={savingStep}
+            />
           )}
 
           {/* Findings */}

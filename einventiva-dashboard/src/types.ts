@@ -320,6 +320,23 @@ export interface AiActionStep {
   dependsOn: string | null
 }
 
+export type AiStepState = 'pending' | 'applied' | 'verified' | 'dismissed'
+
+// Lifecycle attached to one action-plan step (by its index in actionPlan)
+export interface AiStepStatus {
+  stepIndex: number
+  status: AiStepState
+  executionId: number | null
+  verdict: {
+    summary: string
+    severity: AiInterpretation['severity']
+    resolved: 'yes' | 'no' | 'unclear'
+    at: string
+  } | null
+  note: string | null
+  updatedAt: string
+}
+
 export interface AiAnalysis {
   id: number
   timestamp: string
@@ -328,6 +345,7 @@ export interface AiAnalysis {
   summary: string | null
   findings: AiFinding[] | null
   actionPlan?: AiActionStep[] | null
+  stepStatuses?: AiStepStatus[]
   tokensIn: number | null
   tokensOut: number | null
   durationMs: number | null
@@ -340,6 +358,8 @@ export interface AiInterpretation {
   severity: 'ok' | 'info' | 'warning' | 'critical'
   points: string[]
   action: string
+  // Whether the output settles the concern that motivated running the script
+  resolved?: 'yes' | 'no' | 'unclear'
   model?: string
   tokensIn?: number | null
   tokensOut?: number | null
