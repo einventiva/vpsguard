@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const { parseAnalysis, parseFindings, groupFindingsForAlerts, parseInterpretation } = require('../services/aiAnalysis');
 const { buildOpenAIRequest, buildAnthropicRequest, extractOpenAIResponse, extractAnthropicResponse, callLLM } = require('../services/aiProviders');
 const http = require('http');
-const { compressRollup, formatServerStatus, detectMaintenanceWindows } = require('../services/aiSample');
+const { compressRollup, formatServerStatus, detectMaintenanceWindows, slopeDirection } = require('../services/aiSample');
 
 describe('parseFindings', () => {
   const good = JSON.stringify({
@@ -204,6 +204,49 @@ describe('provider request builders', () => {
   });
 });
 
+describe('sample fidelity: missing data is not an outage', () => {
+  // A cache gap used to be rendered as `unreachable`, and the model then
+  // reported a fleet-wide failure that never happened.
+  test('absent status yields unknown availability, never unreachable', () => {
+    const r = formatServerStatus('prod', undefined);
+    assert.equal(r.online, null);
+    assert.ok(!('error' in r));
+    assert.match(r.note, /do not report as down/);
+  });
+
+  test('a genuinely failed poll is still reported as offline', () => {
+    const r = formatServerStatus('prod', { status: 'error', error: 'connection refused' });
+    assert.equal(r.online, false);
+    assert.equal(r.error, 'connection refused');
+  });
+
+  test('connected server reports usage percentages', () => {
+    const r = formatServerStatus('prod', {
+      status: 'connected', name: 'Prod',
+      metrics: { memory: { total: 100, used: 25 }, disk: { percentUsed: '13%' } },
+    });
+    assert.equal(r.online, true);
+    assert.equal(r.memPct, 25);
+    assert.equal(r.diskPct, 13);
+  });
+});
+
+describe('sample fidelity: metric direction is explicit', () => {
+  test('rollup fields carry their unit', () => {
+    const [row] = compressRollup([{ timestamp: 't', cpu: 4.66, memory: 19.7, disk: 13.94 }]);
+    assert.deepStrictEqual(row, { t: 't', cpuPct: 4.7, memPct: 19.7, diskPct: 13.9 });
+  });
+
+  // Freeing disk fast is an improvement; it was being summarized as a
+  // "rapid drop in capacity".
+  test('falling usage is improving, rising is worsening, noise is flat', () => {
+    assert.equal(slopeDirection(-11.5, 0.05), 'improving');
+    assert.equal(slopeDirection(0.49, 0.05), 'worsening');
+    assert.equal(slopeDirection(0.01, 0.05), 'flat');
+    assert.equal(slopeDirection(null, 0.05), null);
+  });
+});
+
 describe('callLLM timeout reporting', () => {
   // A bare AbortError reads "This operation was aborted" and names neither the
   // model nor the limit — useless when a slow model is the actual cause.
@@ -259,6 +302,6 @@ describe('aiSample shaping', () => {
 
   test('compressRollup rounds and keeps timestamps', () => {
     const out = compressRollup([{ timestamp: 'T1', cpu: 1.234, memory: 50.55, disk: 20 }]);
-    assert.deepStrictEqual(out, [{ t: 'T1', cpu: 1.2, mem: 50.6, disk: 20 }]);
+    assert.deepStrictEqual(out, [{ t: 'T1', cpuPct: 1.2, memPct: 50.6, diskPct: 20 }]);
   });
 });

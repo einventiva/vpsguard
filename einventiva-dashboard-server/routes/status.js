@@ -2,6 +2,7 @@ const express = require('express');
 const { log, handleError } = require('../services/logger');
 const { getCached, setCache } = require('../services/cache');
 const { fetchAllServerStatus } = require('../services/backgroundJobs');
+const { STATUS_CACHE_TTL } = require('../config');
 
 function createRouter(getServers) {
   const router = express.Router();
@@ -21,7 +22,7 @@ function createRouter(getServers) {
         log('GET /api/status — cache miss, fetching');
         fetchInProgress = fetchAllServerStatus(getServers)
           .then(data => {
-            setCache('status', data, 13000);
+            setCache('status', data, STATUS_CACHE_TTL);
             return data;
           })
           .finally(() => { fetchInProgress = null; });

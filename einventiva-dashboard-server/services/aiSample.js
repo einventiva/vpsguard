@@ -11,10 +11,16 @@ const { parseCpuPercent } = require('./metrics');
 
 const r1 = (n) => (n == null || Number.isNaN(n) ? null : Math.round(n * 10) / 10);
 
-// Pure: shape one server's live status into the sample entry
+// Pure: shape one server's live status into the sample entry.
+// Absence of a sample is NOT evidence of an outage: a cache gap used to be
+// rendered as `unreachable`, and the model faithfully reported a fleet-wide
+// failure that never happened. Missing data says so explicitly instead.
 function formatServerStatus(key, s) {
-  if (!s || s.status !== 'connected') {
-    return { server: key, online: false, error: s?.error || 'unreachable' };
+  if (!s) {
+    return { server: key, online: null, note: 'no recent status sample — availability unknown, do not report as down' };
+  }
+  if (s.status !== 'connected') {
+    return { server: key, online: false, error: s.error || 'unreachable' };
   }
   const m = s.metrics || {};
   const mem = m.memory || {};
@@ -27,19 +33,30 @@ function formatServerStatus(key, s) {
     diskPct: parseInt((m.disk?.percentUsed || '0').replace('%', '')) || 0,
     swapPct: mem.swapTotal ? r1((mem.swapUsed / mem.swapTotal) * 100) : null,
     inodesPct: parseInt((m.inodes?.percentUsed || '0').replace('%', '')) || null,
-    sshLatencyMs: s.latencyMs ?? null,
+    // Round-trip of the whole metrics command, not a network RTT — naming
+    // it sshLatency had the model reporting normal work time as an outage risk
+    statusCmdMs: s.latencyMs ?? null,
     containers: Array.isArray(m.dockerStats) ? m.dockerStats.length : null,
     rebootRequired: !!m.rebootRequired,
     failedUnits: m.failedUnits || [],
   };
 }
 
-// Pure: compress a rollup series to [{t, cpu, mem, disk}] with rounding
+// Pure: compress a rollup series with rounding. Field names carry the unit —
+// bare `disk: 13.9` left the model guessing whether it meant used or free.
 function compressRollup(entries) {
   return (entries || []).map(e => ({
     t: e.timestamp,
-    cpu: r1(e.cpu), mem: r1(e.memory), disk: r1(e.disk),
+    cpuPct: r1(e.cpu), memPct: r1(e.memory), diskPct: r1(e.disk),
   }));
+}
+
+// Sign semantics are not obvious to a model primed to hunt for problems:
+// falling usage is an improvement, not a "rapid drop in capacity".
+function slopeDirection(slope, deadband) {
+  if (slope == null) return null;
+  if (Math.abs(slope) < deadband) return 'flat';
+  return slope < 0 ? 'improving' : 'worsening';
 }
 
 function formatAlert(a) {
@@ -59,11 +76,17 @@ function buildSample(getServers) {
   const status = getCached('status') || {};
   const servers = serverKeys.map(k => formatServerStatus(k, status[k]));
 
+  // Alerts of type 'ai' were opened by previous analyses — they are this
+  // model's own past output. Mixed into `active` they read as independent
+  // corroboration, so a single bad finding re-confirms itself every run.
+  // Surfaced separately, and the prompt is told not to treat them as evidence.
   const alerts = db.getAlerts({ limit: 60 });
-  const active = alerts.filter(a => !a.resolved_at).map(formatAlert);
+  const isOwn = (a) => a.type === 'ai';
+  const active = alerts.filter(a => !a.resolved_at && !isOwn(a)).map(formatAlert);
   const recentResolved = alerts
-    .filter(a => a.resolved_at && new Date(a.resolved_at).getTime() > now - 48 * 3600e3)
+    .filter(a => a.resolved_at && !isOwn(a) && new Date(a.resolved_at).getTime() > now - 48 * 3600e3)
     .slice(0, 15).map(formatAlert);
+  const priorAiAlerts = alerts.filter(a => !a.resolved_at && isOwn(a)).map(formatAlert);
 
   const trends = {};
   for (const k of serverKeys) {
@@ -77,10 +100,12 @@ function buildSample(getServers) {
   try {
     const proj = computeProjections(serverKeys);
     for (const [k, p] of Object.entries(proj)) {
+      const diskSlope = p.disk?.slopePerDay ?? null;
       projections[k] = {
         diskEtaDays: p.disk?.etaDays != null ? Math.round(p.disk.etaDays) : null,
-        diskSlopePerDay: p.disk?.slopePerDay ?? null,
-        memSlopePerHour: p.memory?.slopePerHour ?? null,
+        diskSlopePctPerDay: diskSlope,
+        diskDirection: slopeDirection(diskSlope, 0.05),
+        memSlopePctPerHour: p.memory?.slopePerHour ?? null,
         memTrendingUp: !!p.memory?.trendingUp,
       };
     }
@@ -106,6 +131,7 @@ function buildSample(getServers) {
     generatedAt: new Date(now).toISOString(),
     servers,
     alerts: { active, recentResolved },
+    priorAiAlerts,
     trends,
     projections,
     postgres: pg,
@@ -145,4 +171,4 @@ function detectMaintenanceWindows(status, now) {
   return windows;
 }
 
-module.exports = { buildSample, formatServerStatus, compressRollup, detectMaintenanceWindows };
+module.exports = { buildSample, formatServerStatus, compressRollup, detectMaintenanceWindows, slopeDirection };
