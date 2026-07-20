@@ -16,7 +16,7 @@ const { sendCustomNotification } = require('./alerts');
 const { sendWebhook } = require('./notify');
 const { setCache } = require('./cache');
 const {
-  METRICS_INTERVAL, DETAIL_EVERY_CYCLES, PRUNE_INTERVAL, PRUNE_STARTUP_DELAY, PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS,
+  METRICS_INTERVAL, STATUS_CACHE_TTL, DETAIL_EVERY_CYCLES, PRUNE_INTERVAL, PRUNE_STARTUP_DELAY, PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS,
   ROLLUP_INTERVAL, ROLLUP_STARTUP_DELAY, ROLLUP_KEEP_DAYS,
   SLOW_CHECK_INTERVAL, SLOW_CHECK_STARTUP_DELAY, DISK_ETA_ALERT_DAYS, SSL_ALERT_DAYS,
   PG_SAMPLE_INTERVAL, PG_SAMPLE_STARTUP_DELAY, PG_KEEP_DAYS, PG_CONN_ALERT_PCT, PG_REPL_LAG_ALERT_MB,
@@ -90,7 +90,7 @@ function startMetricsLoop(io, getServers) {
       // (~60s) — the drill-down finds the nearest sample via window=
       const storeDetail = cycle % DETAIL_EVERY_CYCLES === 0;
       const statusData = await fetchAllServerStatus(getServers);
-      setCache('status', statusData, 10000);
+      setCache('status', statusData, STATUS_CACHE_TTL);
 
       const SERVERS = getServers();
 
