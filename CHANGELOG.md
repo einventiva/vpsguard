@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.11.0] — 2026-07-20
+
+#### Added
+- **Action-plan steps close the loop (A5)**: plan steps were an immutable snapshot — once you actually performed a suggested action, the step looked identical forever, with no way to mark it done, dismiss it, or learn whether it worked. Steps now carry a lifecycle (`pending → applied → verified`, plus `dismissed`) persisted in a new `ai_action_status` table. Running a script from a step marks it **applied** automatically; interpreting that output attaches the **AI's verdict** to the step (the interpretation now returns a machine-readable `resolved: yes|no|unclear`, so a clean verification closes the step as **verified** while an unresolved one stays on the list carrying the AI's take). Manual `hecho` / `descartar` controls cover actions handled outside the dashboard, and closed steps move to a collapsed **Completed** section — so the active plan shrinks as you work it (`PUT /ai/analyses/:id/steps/:index`)
+
+#### Changed
+- **Menu label `Prevención` → `Prevention`**: it was the only nav item in Spanish among Overview / Alerts / Docker / PostgreSQL / Scripts / Crontab / Logs / Servers
+
 ### [1.10.1] — 2026-07-17
 
 #### Fixed
@@ -149,6 +157,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.11.0] — 2026-07-20
+
+#### Agregado
+- **Los pasos del plan de acción cierran el ciclo (A5)**: los pasos eran una foto inmutable — una vez que ejecutabas la acción sugerida, el paso se veía idéntico para siempre, sin forma de marcarlo hecho, descartarlo ni saber si funcionó. Ahora cada paso tiene un ciclo de vida (`pending → applied → verified`, más `dismissed`) persistido en la nueva tabla `ai_action_status`. Ejecutar un script desde un paso lo marca **aplicado** automáticamente; interpretar ese output adjunta el **veredicto de la IA** al paso (la interpretación ahora devuelve un `resolved: yes|no|unclear` legible por máquina, así una verificación limpia cierra el paso como **verificado** mientras una sin resolver permanece en la lista mostrando lo que dijo la IA). Los controles manuales `hecho` / `descartar` cubren lo que resuelves fuera del dashboard, y los pasos cerrados pasan a una sección **Completado** colapsada — así el plan activo se encoge conforme trabajas (`PUT /ai/analyses/:id/steps/:index`)
+
+#### Cambiado
+- **Etiqueta de menú `Prevención` → `Prevention`**: era el único ítem de navegación en español entre Overview / Alerts / Docker / PostgreSQL / Scripts / Crontab / Logs / Servers
 
 ### [1.10.1] — 2026-07-17
 

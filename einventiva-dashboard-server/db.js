@@ -175,6 +175,19 @@ function initDB() {
       updated_at TEXT DEFAULT (datetime('now'))
     );
 
+    -- Per-step lifecycle for AI action plans: pending -> applied -> verified (or dismissed)
+    CREATE TABLE IF NOT EXISTS ai_action_status (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      analysis_id INTEGER NOT NULL,
+      step_index INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      execution_id INTEGER,
+      verdict TEXT,
+      note TEXT,
+      updated_at TEXT NOT NULL,
+      UNIQUE(analysis_id, step_index)
+    );
+
     CREATE TABLE IF NOT EXISTS metrics_rollup (
       server TEXT NOT NULL,
       bucket_start TEXT NOT NULL,
@@ -574,7 +587,53 @@ function getAiAnalysis(id) {
 }
 
 function pruneAiAnalyses(keep = 100) {
-  return db.prepare('DELETE FROM ai_analyses WHERE id NOT IN (SELECT id FROM ai_analyses ORDER BY id DESC LIMIT ?)').run(keep);
+  const info = db.prepare('DELETE FROM ai_analyses WHERE id NOT IN (SELECT id FROM ai_analyses ORDER BY id DESC LIMIT ?)').run(keep);
+  // Drop step state orphaned by the prune
+  db.prepare('DELETE FROM ai_action_status WHERE analysis_id NOT IN (SELECT id FROM ai_analyses)').run();
+  return info;
+}
+
+// ─── AI action-plan step status ──────────────────────────────────────
+const ACTION_STATUSES = ['pending', 'applied', 'verified', 'dismissed'];
+
+// Upsert: only the provided fields overwrite, so a verdict can land without
+// clobbering the execution link (and vice versa).
+function setActionStatus({ analysisId, stepIndex, status, executionId, verdict, note }) {
+  if (status && !ACTION_STATUSES.includes(status)) {
+    throw new Error(`Invalid status: ${status}`);
+  }
+  db.prepare(`
+    INSERT INTO ai_action_status (analysis_id, step_index, status, execution_id, verdict, note, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    ON CONFLICT(analysis_id, step_index) DO UPDATE SET
+      status       = COALESCE(excluded.status, ai_action_status.status),
+      execution_id = COALESCE(excluded.execution_id, ai_action_status.execution_id),
+      verdict      = COALESCE(excluded.verdict, ai_action_status.verdict),
+      note         = COALESCE(excluded.note, ai_action_status.note),
+      updated_at   = excluded.updated_at
+  `).run(analysisId, stepIndex, status ?? 'pending', executionId ?? null, verdict ?? null, note ?? null);
+  return getActionStatus(analysisId, stepIndex);
+}
+
+function getActionStatus(analysisId, stepIndex) {
+  return db.prepare('SELECT * FROM ai_action_status WHERE analysis_id = ? AND step_index = ?').get(analysisId, stepIndex);
+}
+
+function getActionStatuses(analysisId) {
+  return db.prepare('SELECT * FROM ai_action_status WHERE analysis_id = ? ORDER BY step_index').all(analysisId);
+}
+
+// All statuses for a set of analyses, grouped by analysis id (avoids N+1 on list)
+function getActionStatusesFor(analysisIds) {
+  if (!analysisIds.length) return {};
+  const placeholders = analysisIds.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT * FROM ai_action_status WHERE analysis_id IN (${placeholders}) ORDER BY step_index`
+  ).all(...analysisIds);
+  return rows.reduce((acc, r) => {
+    (acc[r.analysis_id] ||= []).push(r);
+    return acc;
+  }, {});
 }
 
 // Latest scheduled run per (server, script) — drives the script-failed alert
@@ -756,6 +815,10 @@ module.exports = {
   insertAiAnalysis,
   getAiAnalyses,
   getAiAnalysis,
+  setActionStatus,
+  getActionStatus,
+  getActionStatuses,
+  getActionStatusesFor,
   getLastSuccessfulAnalysis,
   pruneAiAnalyses,
   // Settings
