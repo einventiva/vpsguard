@@ -1,6 +1,37 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { filterWarnings, isSSHWarning, injectSudoPassword, maskSudoPassword } = require('../services/ssh');
+const { filterWarnings, isSSHWarning, injectSudoPassword, maskSudoPassword, describeExecFailure } = require('../services/ssh');
+
+describe('describeExecFailure', () => {
+  it('names a timeout, which exec reports with no stderr at all', () => {
+    // The real symptom: a probe that hung looked identical to a command
+    // that failed, because both arrive as "Command failed: <ssh line>"
+    const msg = describeExecFailure({ killed: true, stderr: '', message: 'Command failed: ssh ...' }, 20000);
+    assert.match(msg, /no response within 20s/);
+  });
+
+  it('surfaces the tail of stderr, keeping two lines for context', () => {
+    // Real ssh failures are often two lines ("Permission denied (publickey)."
+    // under a connect line), so the tail is kept rather than the last line
+    const err = { killed: false, code: 255, stderr: 'Host key verification failed.\nssh: connect to host x port 22: Connection refused\n' };
+    assert.equal(
+      describeExecFailure(err, 30000),
+      'Host key verification failed.; ssh: connect to host x port 22: Connection refused'
+    );
+  });
+
+  it('never leaks an injected sudo password echoed back by the shell', () => {
+    const err = { code: 1, stderr: "sh: line 1: echo 'hunter2' | sudo -S apt update: not found" };
+    const msg = describeExecFailure(err, 30000);
+    assert.ok(!msg.includes('hunter2'), msg);
+    assert.match(msg, /sudo -S/);
+  });
+
+  it('drops ssh banner warnings rather than reporting them as the cause', () => {
+    const err = { code: 3, stderr: 'WARNING: connection is not using a post-quantum key exchange algorithm.\n' };
+    assert.equal(describeExecFailure(err, 30000), 'exited 3 with no error output');
+  });
+});
 
 describe('isSSHWarning', () => {
   it('detects "WARNING: connection is not using"', () => {

@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { log, handleError } = require('../services/logger');
-const { KINDS, SERVER_ONLY_KINDS, runCheck } = require('../services/serviceChecks');
+const { KINDS, SERVER_ONLY_KINDS, runCheck, uptimePct } = require('../services/serviceChecks');
 
 const SEVERITIES = ['warning', 'critical'];
 // A check that probes faster than this hammers the target more than it
@@ -76,7 +76,7 @@ function createRouter(getServers) {
           lastResult: last
             ? { ok: !!last.ok, latencyMs: last.latency_ms, statusCode: last.status_code, error: last.error, timestamp: last.timestamp }
             : null,
-          uptime24hPct: u && u.total > 0 ? Math.round((u.passed / u.total) * 1000) / 10 : null,
+          uptime24hPct: uptimePct(u),
           avgLatencyMs24h: u && u.avg_latency != null ? Math.round(u.avg_latency) : null,
         };
       });

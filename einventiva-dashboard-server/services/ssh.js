@@ -70,9 +70,30 @@ async function executeSSHCommand(serverAlias, command, timeout = COMMAND_TIMEOUT
     }
     return stdout;
   } catch (error) {
+    // exec's own message is "Command failed: <the entire ssh line>" — for a
+    // base64-piped probe that is a wall of noise carrying no reason at all.
+    // Worse, a kill-on-timeout leaves stderr empty, so without this a probe
+    // that hung is indistinguishable from one whose command genuinely failed.
+    // The error object itself is preserved: callers read .code/.stdout/
+    // .stderr/.killed off it.
+    error.message = `SSH to ${serverAlias} failed: ${describeExecFailure(error, timeout)}`;
     log(`SSH command failed`, { server: serverAlias, error: error.message });
     throw error;
   }
+}
+
+// Pure: the shortest honest explanation of why an exec'd ssh call failed.
+function describeExecFailure(error, timeout) {
+  if (error.killed) {
+    const limit = timeout >= 1000 ? `${Math.round(timeout / 1000)}s` : `${timeout}ms`;
+    return `no response within ${limit} — the command hung or the host stopped answering`;
+  }
+  // stderr can echo the command back, and an injected sudo password with it
+  const stderr = maskSudoPassword(filterWarnings(String(error.stderr || '')))
+    .split('\n').map(l => l.trim()).filter(Boolean).slice(-2).join('; ');
+  if (stderr) return stderr;
+  if (typeof error.code === 'number') return `exited ${error.code} with no error output`;
+  return error.message;
 }
 
 function closeMuxConnection(serverAlias) {
@@ -92,4 +113,4 @@ function closeAllMuxConnections() {
   } catch (_) { /* ignore cleanup errors */ }
 }
 
-module.exports = { executeSSHCommand, filterWarnings, isSSHWarning, injectSudoPassword, maskSudoPassword, getMuxOpts, closeMuxConnection, closeAllMuxConnections, exec };
+module.exports = { executeSSHCommand, describeExecFailure, filterWarnings, isSSHWarning, injectSudoPassword, maskSudoPassword, getMuxOpts, closeMuxConnection, closeAllMuxConnections, exec };

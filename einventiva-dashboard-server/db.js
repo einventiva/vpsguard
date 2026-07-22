@@ -893,6 +893,15 @@ function getLatestCheckResults() {
   `).all();
 }
 
+// Same aggregate for a single check — cheap on the (check_id, timestamp)
+// index, so a result can carry its own fresh uptime as it is recorded
+function getCheckUptimeFor(checkId, sinceIso) {
+  return db.prepare(`
+    SELECT COUNT(*) AS total, SUM(ok) AS passed, AVG(latency_ms) AS avg_latency
+    FROM service_check_results WHERE check_id = ? AND timestamp > ?
+  `).get(checkId, sinceIso);
+}
+
 function getCheckUptime(sinceIso) {
   return db.prepare(`
     SELECT check_id, COUNT(*) AS total, SUM(ok) AS passed, AVG(latency_ms) AS avg_latency
@@ -999,6 +1008,7 @@ module.exports = {
   getCheckResults,
   getLatestCheckResults,
   getCheckUptime,
+  getCheckUptimeFor,
   pruneCheckResults,
   // Thresholds
   getThreshold,
