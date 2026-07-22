@@ -11,6 +11,7 @@ const { samplePgServer } = require('./pgHistory');
 const { fetchCertificates } = require('./sslCheck');
 const { fetchRestartCounts, computeRestartDeltas, toSnapshot } = require('./containerWatch');
 const { dueScripts, resolveTargetServers, parseCron, cronMatches, isValidCron } = require('./scheduler');
+const { runCheck } = require('./serviceChecks');
 const { runAnalysis, isConfigured: aiConfigured, toClientShape, groupFindingsForAlerts } = require('./aiAnalysis');
 const { sendCustomNotification } = require('./alerts');
 const { sendWebhook } = require('./notify');
@@ -22,6 +23,7 @@ const {
   PG_SAMPLE_INTERVAL, PG_SAMPLE_STARTUP_DELAY, PG_KEEP_DAYS, PG_CONN_ALERT_PCT, PG_REPL_LAG_ALERT_MB,
   ALERT_SAMPLES_TO_OPEN, ALERT_SAMPLES_TO_RESOLVE, SCRIPT_TIMEOUT,
   AI_ANALYSIS_SCHEDULE, AI_OPEN_ALERTS,
+  SERVICE_CHECK_TICK, SERVICE_CHECK_STARTUP_DELAY, SERVICE_CHECK_CONCURRENCY, SERVICE_CHECK_KEEP_DAYS,
 } = require('../config');
 
 async function fetchAllServerStatus(getServers) {
@@ -173,7 +175,8 @@ function startPruneLoop() {
     try {
       const result = db.pruneOldMetrics(PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS);
       const pg = db.prunePgHistory(PG_KEEP_DAYS);
-      log('Pruned old metrics', { ...result, pgDeleted: pg.changes });
+      const checks = db.pruneCheckResults(SERVICE_CHECK_KEEP_DAYS);
+      log('Pruned old metrics', { ...result, pgDeleted: pg.changes, checkResultsDeleted: checks });
     } catch (e) {
       log('Prune failed', { error: e.message });
     }
@@ -185,18 +188,24 @@ function startPruneLoop() {
 }
 
 // Open/resolve an alert managed outside the per-sample engine (hourly
-// checks need no hysteresis — the condition is already smoothed)
-function transitionAlert(io, { server, type, active, severity, message, value, threshold }) {
-  const open = db.getOpenAlert(server, type);
+// checks need no hysteresis — the condition is already smoothed).
+//
+// `subject` scopes the alert within (server, type). Callers that omit it
+// keep the historical behaviour of one open alert per server and type;
+// callers that pass it — service checks — get one per subject, so two
+// services failing on the same host raise two alerts instead of the
+// second being swallowed as a duplicate of the first.
+function transitionAlert(io, { server, type, active, severity, message, value, threshold, subject = null }) {
+  const open = db.getOpenAlert(server, type, subject);
   if (active && !open) {
-    const row = db.openAlert({ server, type, severity, message, value, threshold });
-    log('Alert opened', { server, type, value });
+    const row = db.openAlert({ server, type, severity, message, value, threshold, subject });
+    log('Alert opened', { server, type, subject, value });
     io.emit('alert:opened', row);
     sendNativeNotification(row, 'opened');
     sendWebhook('opened', row);
   } else if (!active && open) {
     const row = db.resolveAlert(open.id);
-    log('Alert resolved', { server, type, id: open.id });
+    log('Alert resolved', { server, type, subject, id: open.id });
     io.emit('alert:resolved', row);
     sendNativeNotification(row, 'resolved');
     sendWebhook('resolved', row);
@@ -490,4 +499,91 @@ function startRollupLoop() {
   setInterval(rollup, ROLLUP_INTERVAL);
 }
 
-module.exports = { fetchAllServerStatus, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop, afterAiAnalysis, runSlowChecks, runPgSampling, runScheduledScripts };
+// ─── Service checks ─────────────────────────────────────────────────
+
+// Per-check runtime state. Kept in memory rather than as a timer per
+// check because checks are edited and deleted at runtime; a stale
+// setInterval would keep probing a check that no longer exists.
+const checkState = new Map(); // id -> { nextRunAt, fails, oks, running }
+
+function stateFor(id) {
+  if (!checkState.has(id)) checkState.set(id, { nextRunAt: 0, fails: 0, oks: 0, running: false });
+  return checkState.get(id);
+}
+
+// Runs one check and reconciles its alert. Hysteresis lives here, not in
+// transitionAlert: a check knows how many consecutive failures it takes
+// to mean something, and transitionAlert stays a plain idempotent
+// open/close.
+async function executeCheck(io, check, getServers) {
+  const st = stateFor(check.id);
+  st.running = true;
+  try {
+    const result = await runCheck(check, { getServers });
+    db.recordCheckResult({ checkId: check.id, ...result });
+    io.emit('check:result', {
+      checkId: check.id,
+      ok: result.ok,
+      latencyMs: result.latencyMs,
+      statusCode: result.statusCode,
+      error: result.error,
+      timestamp: new Date().toISOString(),
+    });
+
+    if (result.ok) {
+      st.fails = 0;
+      st.oks = Math.min(st.oks + 1, check.successes_to_resolve);
+    } else {
+      st.oks = 0;
+      st.fails = Math.min(st.fails + 1, check.failures_to_open);
+    }
+
+    const down = st.fails >= check.failures_to_open;
+    const up = st.oks >= check.successes_to_resolve;
+    if (down || up) {
+      transitionAlert(io, {
+        // The alert is attributed to the vantage point it was observed
+        // from, which is also where a remediation script would run
+        server: check.run_from,
+        type: 'service',
+        subject: check.id,
+        active: down,
+        severity: check.severity || 'critical',
+        message: down ? `${check.name} is failing — ${result.error || 'check did not pass'}` : '',
+        value: result.latencyMs ?? null,
+      });
+    }
+  } catch (e) {
+    log('Service check crashed', { check: check.id, error: e.message });
+  } finally {
+    st.running = false;
+    st.nextRunAt = Date.now() + check.interval_sec * 1000;
+  }
+}
+
+async function runDueChecks(io, getServers) {
+  const checks = db.getServiceChecks().filter(c => c.enabled);
+
+  // Forget state for checks that were deleted or disabled
+  const live = new Set(checks.map(c => c.id));
+  for (const id of [...checkState.keys()]) if (!live.has(id)) checkState.delete(id);
+
+  const now = Date.now();
+  const due = checks.filter(c => {
+    const st = checkState.get(c.id);
+    return !st || (!st.running && st.nextRunAt <= now);
+  });
+
+  for (let i = 0; i < due.length; i += SERVICE_CHECK_CONCURRENCY) {
+    const batch = due.slice(i, i + SERVICE_CHECK_CONCURRENCY);
+    await Promise.allSettled(batch.map(c => executeCheck(io, c, getServers)));
+  }
+}
+
+function startServiceCheckLoop(io, getServers) {
+  const run = () => runDueChecks(io, getServers).catch(e => log('Service checks failed', { error: e.message }));
+  setTimeout(run, SERVICE_CHECK_STARTUP_DELAY);
+  setInterval(run, SERVICE_CHECK_TICK);
+}
+
+module.exports = { fetchAllServerStatus, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop, startServiceCheckLoop, afterAiAnalysis, runSlowChecks, runPgSampling, runScheduledScripts, runDueChecks };
