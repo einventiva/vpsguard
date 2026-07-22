@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const { parseAnalysis, parseFindings, groupFindingsForAlerts, parseInterpretation } = require('../services/aiAnalysis');
 const { buildOpenAIRequest, buildAnthropicRequest, extractOpenAIResponse, extractAnthropicResponse, callLLM } = require('../services/aiProviders');
 const http = require('http');
-const { compressRollup, formatServerStatus, detectMaintenanceWindows, slopeDirection } = require('../services/aiSample');
+const { compressRollup, formatServerStatus, formatServiceCheck, detectMaintenanceWindows, slopeDirection } = require('../services/aiSample');
 
 describe('parseFindings', () => {
   const good = JSON.stringify({
@@ -303,5 +303,43 @@ describe('aiSample shaping', () => {
   test('compressRollup rounds and keeps timestamps', () => {
     const out = compressRollup([{ timestamp: 'T1', cpu: 1.234, memory: 50.55, disk: 20 }]);
     assert.deepStrictEqual(out, [{ t: 'T1', cpuPct: 1.2, memPct: 50.6, diskPct: 20 }]);
+  });
+});
+
+describe('formatServiceCheck', () => {
+  const check = (over = {}) => ({ id: 'api', name: 'API', kind: 'http', run_from: 'prod', enabled: true, ...over });
+
+  test('a check that never ran is unknown, never down', () => {
+    const s = formatServiceCheck(check(), undefined, undefined);
+    assert.strictEqual(s.ok, null);
+    assert.match(s.note, /do not report as down/);
+    assert.strictEqual(s.error, undefined);
+  });
+
+  test('a paused check is unknown, not a finding', () => {
+    const s = formatServiceCheck(check({ enabled: false }), { ok: 0, error: 'stale' }, undefined);
+    assert.strictEqual(s.ok, null);
+    assert.strictEqual(s.paused, true);
+    // A result recorded before the pause must not leak in as evidence
+    assert.strictEqual(s.error, undefined);
+  });
+
+  test('a passing check carries latency and rounded 24h uptime', () => {
+    const s = formatServiceCheck(check(), { ok: 1, latency_ms: 12 }, { total: 3, passed: 2 });
+    assert.deepStrictEqual(
+      { ok: s.ok, latencyMs: s.latencyMs, error: s.error, uptime24hPct: s.uptime24hPct },
+      { ok: true, latencyMs: 12, error: null, uptime24hPct: 66.7 }
+    );
+  });
+
+  test('a failing check says why', () => {
+    const s = formatServiceCheck(check(), { ok: 0, latency_ms: 5, error: 'HTTP 500' }, { total: 4, passed: 0 });
+    assert.strictEqual(s.ok, false);
+    assert.strictEqual(s.error, 'HTTP 500');
+    assert.strictEqual(s.uptime24hPct, 0);
+  });
+
+  test('the vantage point travels with the check', () => {
+    assert.strictEqual(formatServiceCheck(check({ run_from: 'dashboard' }), undefined, undefined).probedFrom, 'dashboard');
   });
 });

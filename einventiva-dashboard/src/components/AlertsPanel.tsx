@@ -157,7 +157,7 @@ export function AlertsPanel({ alertsApi, thresholdsApi, servers, onOpenScript }:
       {/* Purpose + legend: what this screen is and what each state means */}
       <div className="space-y-2">
         <p className="text-sm text-zinc-300">
-          Centro de alertas de la flota — cada problema detectado (umbrales, disco, cron, SSL, IA…) aparece aquí con su ciclo de vida completo.
+          Centro de alertas de la flota — cada problema detectado (umbrales, disco, cron, SSL, servicios, IA…) aparece aquí con su ciclo de vida completo.
         </p>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-zinc-500">
           <span className="flex items-center gap-1.5">
