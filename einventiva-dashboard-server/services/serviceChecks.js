@@ -28,6 +28,15 @@ const SSH_TIMEOUT_MARGIN = 10000;
 
 // ─── Pure helpers (exported for tests) ──────────────────────────────
 
+// Share of runs that passed, to one decimal. null when nothing has run:
+// "no data" must never render as 0% (a total outage) or 100% (perfect).
+// Single definition — the list endpoint, the live socket payload and the
+// AI sample all read uptime from here, so they cannot drift apart.
+function uptimePct(row) {
+  if (!row || !row.total) return null;
+  return Math.round((row.passed / row.total) * 1000) / 10;
+}
+
 // Accepts 200, '200', '2xx', or a comma list of either. Empty = any 2xx.
 function statusMatches(code, expect) {
   if (code == null) return false;
@@ -332,7 +341,7 @@ async function runCheck(check, { getServers }) {
 }
 
 module.exports = {
-  KINDS, SERVER_ONLY_KINDS, runCheck,
+  KINDS, SERVER_ONLY_KINDS, runCheck, uptimePct,
   // exported for tests
   statusMatches, interpolateEnv, resolveHeaders, readJsonPath, evaluateBody, needsBody,
   parseHostPort, parseCurlOutput, parseTcpProbeOutput, parseCommandOutput,

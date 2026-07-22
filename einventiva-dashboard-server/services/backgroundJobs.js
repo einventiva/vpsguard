@@ -11,7 +11,7 @@ const { samplePgServer } = require('./pgHistory');
 const { fetchCertificates } = require('./sslCheck');
 const { fetchRestartCounts, computeRestartDeltas, toSnapshot } = require('./containerWatch');
 const { dueScripts, resolveTargetServers, parseCron, cronMatches, isValidCron } = require('./scheduler');
-const { runCheck } = require('./serviceChecks');
+const { runCheck, uptimePct } = require('./serviceChecks');
 const { runAnalysis, isConfigured: aiConfigured, toClientShape, groupFindingsForAlerts } = require('./aiAnalysis');
 const { sendCustomNotification } = require('./alerts');
 const { sendWebhook } = require('./notify');
@@ -521,6 +521,10 @@ async function executeCheck(io, check, getServers) {
   try {
     const result = await runCheck(check, { getServers });
     db.recordCheckResult({ checkId: check.id, ...result });
+    // The 24h aggregates ship with the result: a client that only ever
+    // patched the status would show a red check sitting next to a 100%
+    // uptime frozen at page load
+    const window = db.getCheckUptimeFor(check.id, new Date(Date.now() - 24 * 3600e3).toISOString());
     io.emit('check:result', {
       checkId: check.id,
       ok: result.ok,
@@ -528,6 +532,8 @@ async function executeCheck(io, check, getServers) {
       statusCode: result.statusCode,
       error: result.error,
       timestamp: new Date().toISOString(),
+      uptime24hPct: uptimePct(window),
+      avgLatencyMs24h: window && window.avg_latency != null ? Math.round(window.avg_latency) : null,
     });
 
     if (result.ok) {
