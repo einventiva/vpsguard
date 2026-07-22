@@ -5,6 +5,7 @@ import type {
   ServiceCheckInput,
   ServiceCheckKind,
   ServiceCheckResult,
+  ServiceCheckHistoryRow,
 } from '@/types'
 import { SERVER_ONLY_KINDS } from '@/types'
 import { api } from '@/lib/api'
@@ -23,7 +24,8 @@ import {
   CheckCircle2,
   Loader,
   PlayCircle,
-  HelpCircle,
+  ChevronDown,
+  ChevronRight,
   Globe,
   Plug,
   Terminal,
@@ -133,6 +135,34 @@ function StatusPill({ check }: { check: ServiceCheck }) {
   )
 }
 
+function timeAgo(iso?: string | null): string {
+  if (!iso) return 'never'
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000))
+  if (s < 60) return `${s}s ago`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
+}
+
+// Status-page style strip: one bar per recorded result, oldest on the
+// left, so an outage reads as a red gap in an otherwise green band
+function Timeline({ rows }: { rows: ServiceCheckHistoryRow[] }) {
+  const bars = rows.slice(0, 48).reverse()
+  return (
+    <div className="flex items-center gap-0.5">
+      {bars.map((r, i) => (
+        <div
+          key={r.id ?? i}
+          title={`${new Date(r.timestamp).toLocaleString()} — ${r.ok ? `ok · ${r.latency_ms ?? '?'}ms` : (r.error || 'failed')}`}
+          className={`w-1.5 h-6 rounded-sm ${r.ok ? 'bg-green-500/60 hover:bg-green-400' : 'bg-red-500/80 hover:bg-red-400'}`}
+        />
+      ))}
+    </div>
+  )
+}
+
 export function ServicesPanel({ servers, serverKeys }: ServicesPanelProps) {
   const [checks, setChecks] = useState<ServiceCheck[]>([])
   const [loading, setLoading] = useState(true)
@@ -145,6 +175,9 @@ export function ServicesPanel({ servers, serverKeys }: ServicesPanelProps) {
   const [testResult, setTestResult] = useState<{ id: string; result: ServiceCheckResult } | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null)
   const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  const [history, setHistory] = useState<Record<string, ServiceCheckHistoryRow[]>>({})
 
   const isNew = editingId === null
 
@@ -166,9 +199,20 @@ export function ServicesPanel({ servers, serverKeys }: ServicesPanelProps) {
   useEffect(() => {
     const socket = getSharedSocket()
     const onResult = (payload: ServiceCheckResult & { checkId: string }) => {
+      const ts = payload.timestamp ?? new Date().toISOString()
       setChecks(prev => prev.map(c => c.id === payload.checkId
-        ? { ...c, lastResult: { ok: payload.ok, latencyMs: payload.latencyMs, statusCode: payload.statusCode, error: payload.error, timestamp: payload.timestamp } }
+        ? { ...c, lastResult: { ok: payload.ok, latencyMs: payload.latencyMs, statusCode: payload.statusCode, error: payload.error, timestamp: ts } }
         : c))
+      // Keep an open detail timeline moving without a refetch
+      setHistory(prev => prev[payload.checkId]
+        ? {
+            ...prev,
+            [payload.checkId]: [
+              { id: Date.now(), check_id: payload.checkId, timestamp: ts, ok: payload.ok ? 1 : 0, latency_ms: payload.latencyMs, status_code: payload.statusCode, error: payload.error },
+              ...prev[payload.checkId],
+            ].slice(0, 60),
+          }
+        : prev)
     }
     socket.on('check:result', onResult)
     return () => {
@@ -273,6 +317,22 @@ export function ServicesPanel({ servers, serverKeys }: ServicesPanelProps) {
     setConfirmingDelete(id)
     if (confirmTimer.current) clearTimeout(confirmTimer.current)
     confirmTimer.current = setTimeout(() => setConfirmingDelete(null), 4000)
+  }
+
+  const toggleExpand = async (id: string) => {
+    if (expanded === id) {
+      setExpanded(null)
+      return
+    }
+    setExpanded(id)
+    if (!history[id]) {
+      try {
+        const rows = await api.getServiceCheckHistory(id, 60)
+        setHistory(prev => ({ ...prev, [id]: rows }))
+      } catch {
+        setHistory(prev => ({ ...prev, [id]: [] }))
+      }
+    }
   }
 
   const handleTest = async (id: string) => {
@@ -561,11 +621,42 @@ export function ServicesPanel({ servers, serverKeys }: ServicesPanelProps) {
   }
 
   // ─── List view ────────────────────────────────────────────────────
+  const summary = { up: 0, down: 0, unknown: 0, paused: 0 }
+  for (const c of checks) {
+    if (!c.enabled) summary.paused++
+    else if (!c.lastResult) summary.unknown++
+    else if (c.lastResult.ok) summary.up++
+    else summary.down++
+  }
+
+  // Dashboard first, then the servers in their usual order, then any
+  // group left behind by a deleted server — its checks must stay visible
+  const groupDefs: { key: string; label: string }[] = [
+    { key: 'dashboard', label: 'Dashboard — external view' },
+    ...serverKeys.map(k => ({ key: k, label: servers[k]?.displayName || k })),
+  ]
+  for (const c of checks) {
+    if (!groupDefs.some(g => g.key === c.run_from)) groupDefs.push({ key: c.run_from, label: c.run_from })
+  }
+  const groups = groupDefs
+    .map(g => ({ ...g, checks: checks.filter(c => c.run_from === g.key) }))
+    .filter(g => g.checks.length > 0)
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-zinc-300">Service Checks ({checks.length})</h3>
-        <Button variant="outline" size="sm" onClick={() => openEditor()} className="border-blue-700 text-blue-400 hover:bg-blue-900/30">
+        <div className="flex items-center gap-3 min-w-0">
+          <h3 className="text-sm font-semibold text-zinc-300 flex-shrink-0">Service Checks ({checks.length})</h3>
+          {checks.length > 0 && (
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold">
+              <span className="px-2 py-0.5 rounded bg-green-900/40 text-green-300">{summary.up} UP</span>
+              {summary.down > 0 && <span className="px-2 py-0.5 rounded bg-red-900/40 text-red-300">{summary.down} DOWN</span>}
+              {summary.unknown > 0 && <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">{summary.unknown} UNKNOWN</span>}
+              {summary.paused > 0 && <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-400">{summary.paused} PAUSED</span>}
+            </div>
+          )}
+        </div>
+        <Button variant="outline" size="sm" onClick={() => openEditor()} className="border-blue-700 text-blue-400 hover:bg-blue-900/30 flex-shrink-0">
           <Plus className="w-4 h-4 mr-1" />
           New Check
         </Button>
@@ -597,82 +688,132 @@ export function ServicesPanel({ servers, serverKeys }: ServicesPanelProps) {
           </Button>
         </Card>
       ) : (
-        <div className="grid grid-cols-2 gap-4">
-          {checks.map(check => {
-            const Icon = KIND_META[check.kind].icon
-            const vantage = check.run_from === 'dashboard' ? 'Dashboard' : (servers[check.run_from]?.displayName || check.run_from)
-            const result = testResult?.id === check.id ? testResult.result : null
+        <div className="space-y-4">
+          {groups.map(group => {
+            const enabledChecks = group.checks.filter(c => c.enabled)
+            const up = enabledChecks.filter(c => c.lastResult?.ok).length
+            const down = enabledChecks.filter(c => c.lastResult && !c.lastResult.ok).length
+            const tone = down > 0 ? 'text-red-400' : up === enabledChecks.length && up > 0 ? 'text-green-500' : 'text-zinc-400'
+            const isCollapsed = !!collapsed[group.key]
             return (
-              <Card key={check.id} className="border-zinc-700 bg-zinc-900/50 p-4 flex flex-col">
-                <div className="flex items-start gap-3 mb-3">
-                  <Icon className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h4 className="text-sm font-semibold text-zinc-50 truncate">{check.name}</h4>
-                      <StatusPill check={check} />
-                    </div>
-                    <p className="text-xs text-zinc-500 font-mono truncate mt-0.5" title={check.target}>{check.target}</p>
-                  </div>
-                </div>
+              <div key={group.key}>
+                <button
+                  onClick={() => setCollapsed(prev => ({ ...prev, [group.key]: !prev[group.key] }))}
+                  className="w-full flex items-center gap-2 px-1 py-2 text-left"
+                >
+                  {isCollapsed ? <ChevronRight className="w-4 h-4 text-zinc-500" /> : <ChevronDown className="w-4 h-4 text-zinc-500" />}
+                  <span className="text-sm font-semibold text-zinc-200">{group.label}</span>
+                  <span className="text-xs text-zinc-500">{group.checks.length} {group.checks.length === 1 ? 'check' : 'checks'}</span>
+                  <span className={`ml-auto text-xs font-semibold ${tone}`}>{up}/{enabledChecks.length} up</span>
+                </button>
 
-                <div className="text-xs text-zinc-400 space-y-1 mb-3 flex-1">
-                  <p>
-                    <span className="text-zinc-500">From:</span> {vantage}
-                    <span className="text-zinc-600"> · every {check.interval_sec}s</span>
-                  </p>
-                  <p>
-                    <span className="text-zinc-500">24h uptime:</span>{' '}
-                    {check.uptime24hPct == null ? (
-                      <span className="text-zinc-500 inline-flex items-center gap-1">
-                        <HelpCircle className="w-3 h-3" /> no data yet
-                      </span>
-                    ) : (
-                      <span className={check.uptime24hPct >= 99 ? 'text-green-400' : check.uptime24hPct >= 90 ? 'text-amber-400' : 'text-red-400'}>
-                        {check.uptime24hPct}%
-                      </span>
-                    )}
-                    {check.avgLatencyMs24h != null && <span className="text-zinc-600"> · avg {check.avgLatencyMs24h}ms</span>}
-                  </p>
-                  {check.lastResult && !check.lastResult.ok && check.lastResult.error && (
-                    <p className="text-red-300 truncate" title={check.lastResult.error}>{check.lastResult.error}</p>
-                  )}
-                </div>
+                {!isCollapsed && (
+                  <div className="rounded-lg border border-zinc-700 bg-zinc-900/50 divide-y divide-zinc-800 overflow-hidden">
+                    {group.checks.map(check => {
+                      const Icon = KIND_META[check.kind].icon
+                      const isExpanded = expanded === check.id
+                      const rows = history[check.id]
+                      const testR = testResult?.id === check.id ? testResult.result : null
+                      return (
+                        <div key={check.id}>
+                          <div
+                            className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:bg-zinc-800/40"
+                            onClick={() => toggleExpand(check.id)}
+                          >
+                            <Icon className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-medium text-zinc-100 truncate">{check.name}</span>
+                                <StatusPill check={check} />
+                              </div>
+                              <p className="text-xs text-zinc-500 font-mono truncate" title={check.target}>{check.target}</p>
+                            </div>
+                            {check.lastResult && !check.lastResult.ok && check.lastResult.error && (
+                              <span className="hidden lg:block text-xs text-red-300 truncate max-w-48">{check.lastResult.error}</span>
+                            )}
+                            <div className="hidden sm:flex flex-col items-end w-20 text-xs flex-shrink-0">
+                              <span className={check.uptime24hPct == null ? 'text-zinc-600' : check.uptime24hPct >= 99 ? 'text-green-400' : check.uptime24hPct >= 90 ? 'text-amber-400' : 'text-red-400'}>
+                                {check.uptime24hPct == null ? '—' : `${check.uptime24hPct}%`}
+                              </span>
+                              <span className="text-zinc-600">{check.lastResult?.latencyMs != null ? `${check.lastResult.latencyMs}ms` : ''}</span>
+                            </div>
+                            {isExpanded
+                              ? <ChevronDown className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+                              : <ChevronRight className="w-4 h-4 text-zinc-600 flex-shrink-0" />}
+                          </div>
 
-                {result && (
-                  <div className={`flex items-center gap-2 text-xs mb-3 p-2 rounded ${result.ok ? 'bg-green-900/20 text-green-300' : 'bg-red-900/20 text-red-300'}`}>
-                    {result.ok ? <CheckCircle2 className="w-3 h-3 flex-shrink-0" /> : <AlertCircle className="w-3 h-3 flex-shrink-0" />}
-                    <span className="truncate">
-                      {result.ok ? 'Check passed' : result.error}
-                      {result.latencyMs != null && ` · ${result.latencyMs}ms`}
-                    </span>
+                          {isExpanded && (
+                            <div className="px-4 pb-4 pt-1 bg-zinc-900/70 space-y-3">
+                              <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-zinc-400">
+                                <span><span className="text-zinc-500">Every:</span> {check.interval_sec}s</span>
+                                <span><span className="text-zinc-500">Timeout:</span> {check.timeout_ms}ms</span>
+                                <span><span className="text-zinc-500">Alert after:</span> {check.failures_to_open} {check.failures_to_open === 1 ? 'fail' : 'fails'}</span>
+                                <span><span className="text-zinc-500">Severity:</span> {check.severity}</span>
+                                <span><span className="text-zinc-500">Last checked:</span> {timeAgo(check.lastResult?.timestamp)}</span>
+                                {check.avgLatencyMs24h != null && <span><span className="text-zinc-500">Avg 24h:</span> {check.avgLatencyMs24h}ms</span>}
+                              </div>
+
+                              {rows === undefined ? (
+                                <div className="text-xs text-zinc-500"><Loader className="w-3 h-3 animate-spin inline mr-1" /> Loading history…</div>
+                              ) : rows.length === 0 ? (
+                                <p className="text-xs text-zinc-500">No recorded results yet — the loop will produce the first one shortly.</p>
+                              ) : (
+                                <div className="space-y-1">
+                                  <Timeline rows={rows} />
+                                  <p className="text-[10px] text-zinc-600">last {Math.min(rows.length, 48)} results · oldest → newest · hover for detail</p>
+                                </div>
+                              )}
+
+                              {check.lastResult && !check.lastResult.ok && check.lastResult.error && (
+                                <div className="flex items-center gap-2 p-2 rounded bg-red-900/20 text-red-300 text-xs">
+                                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                                  <span className="truncate">{check.lastResult.error}</span>
+                                </div>
+                              )}
+
+                              {testR && (
+                                <div className={`flex items-center gap-2 p-2 rounded text-xs ${testR.ok ? 'bg-green-900/20 text-green-300' : 'bg-red-900/20 text-red-300'}`}>
+                                  {testR.ok ? <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />}
+                                  <span className="truncate">
+                                    {testR.ok ? 'Check passed' : testR.error}
+                                    {testR.latencyMs != null && ` · ${testR.latencyMs}ms`}
+                                  </span>
+                                </div>
+                              )}
+
+                              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleTest(check.id)}
+                                  disabled={testing === check.id}
+                                  className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                                >
+                                  {testing === check.id ? <Loader className="w-3 h-3 mr-1 animate-spin" /> : <PlayCircle className="w-3 h-3 mr-1" />}
+                                  Test now
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={() => openEditor(check)} className="border-zinc-700 text-zinc-300 hover:bg-zinc-800">
+                                  <Pencil className="w-3 h-3 mr-1" />
+                                  Edit
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => requestDelete(check.id)}
+                                  className="border-red-800 text-red-400 hover:bg-red-900/30 ml-auto"
+                                >
+                                  <Trash2 className="w-3 h-3 mr-1" />
+                                  {confirmingDelete === check.id ? 'Click again to confirm' : 'Delete'}
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
-
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1 border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-                    onClick={() => handleTest(check.id)}
-                    disabled={testing === check.id}
-                  >
-                    {testing === check.id ? <Loader className="w-3 h-3 mr-1 animate-spin" /> : <PlayCircle className="w-3 h-3 mr-1" />}
-                    Test
-                  </Button>
-                  <Button variant="ghost" size="sm" className="text-zinc-500 hover:text-zinc-300" onClick={() => openEditor(check)}>
-                    <Pencil className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={confirmingDelete === check.id ? 'text-red-400' : 'text-zinc-500 hover:text-red-400'}
-                    onClick={() => requestDelete(check.id)}
-                    title={confirmingDelete === check.id ? 'Click again to confirm' : 'Delete'}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
-              </Card>
+              </div>
             )
           })}
         </div>
