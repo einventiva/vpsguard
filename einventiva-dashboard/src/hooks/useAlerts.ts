@@ -45,6 +45,7 @@ export function useAlerts(): UseAlertsReturn {
       'pg-replication': 'PostgreSQL replication lagging',
       script: 'Scheduled script failing',
       ai: 'AI analysis findings',
+      service: 'Service check failing',
     }
 
     const onOpened = (alert: Alert) => {
