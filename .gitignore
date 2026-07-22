@@ -17,3 +17,7 @@ ai_agents/
 agent_cache/
 .cache/
 .copilot/
+
+# Backups of env files (a .env.bak-* was committed once by accident)
+.env.bak*
+*.env.bak*
