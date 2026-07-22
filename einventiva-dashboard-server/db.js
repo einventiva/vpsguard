@@ -127,10 +127,15 @@ function initDB() {
       threshold REAL,
       started_at TEXT NOT NULL,
       resolved_at TEXT,
-      acknowledged_at TEXT
+      acknowledged_at TEXT,
+      -- Distinguishes concurrent alerts of the same type on one server
+      -- (which service check, which container, which certificate).
+      -- NULL for the per-sample types, one alert per server as before.
+      subject TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_alerts_started ON alerts(started_at);
-    CREATE INDEX IF NOT EXISTS idx_alerts_open ON alerts(server, type) WHERE resolved_at IS NULL;
+    -- idx_alerts_open is created after the column migrations below: on a
+    -- database predating the subject column, it does not exist yet here.
 
     CREATE TABLE IF NOT EXISTS thresholds (
       server TEXT PRIMARY KEY,
@@ -188,6 +193,39 @@ function initDB() {
       UNIQUE(analysis_id, step_index)
     );
 
+    -- User-defined service checks. Per-kind options live in the config
+    -- column as JSON: the four kinds take very different parameters and this
+    -- project has no migration runner, so adding one option should not
+    -- cost an ALTER. Secrets are never stored — header values keep their
+    -- placeholder form and resolve from the environment at request time.
+    CREATE TABLE IF NOT EXISTS service_checks (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,                          -- http | tcp | command | container
+      target TEXT NOT NULL,                        -- URL | host:port | command | container/unit
+      run_from TEXT NOT NULL DEFAULT 'dashboard',  -- 'dashboard' | server key
+      config TEXT DEFAULT '{}',
+      interval_sec INTEGER DEFAULT 60,
+      timeout_ms INTEGER DEFAULT 10000,
+      failures_to_open INTEGER DEFAULT 2,
+      successes_to_resolve INTEGER DEFAULT 2,
+      severity TEXT DEFAULT 'critical',
+      enabled INTEGER DEFAULT 1,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS service_check_results (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      check_id TEXT NOT NULL,
+      timestamp TEXT NOT NULL,
+      ok INTEGER NOT NULL,
+      latency_ms INTEGER,
+      status_code INTEGER,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_check_results ON service_check_results(check_id, timestamp);
+
     CREATE TABLE IF NOT EXISTS metrics_rollup (
       server TEXT NOT NULL,
       bucket_start TEXT NOT NULL,
@@ -236,6 +274,14 @@ function initDB() {
     db.exec('ALTER TABLE ai_analyses ADD COLUMN action_plan TEXT');
     console.log('[db] Migrated ai_analyses: added action_plan column');
   }
+  if (!hasColumn('alerts', 'subject')) {
+    db.exec('ALTER TABLE alerts ADD COLUMN subject TEXT');
+    // The old index keys on (server, type) only; drop it so the one
+    // created below can include subject under the same name
+    db.exec('DROP INDEX IF EXISTS idx_alerts_open');
+    console.log('[db] Migrated alerts: added subject column');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_alerts_open ON alerts(server, type, subject) WHERE resolved_at IS NULL');
 
   // Seed scripts if table is empty
   const count = db.prepare('SELECT COUNT(*) as c FROM scripts').get();
@@ -699,10 +745,10 @@ function getServerCount() {
 }
 
 // ─── Alerts ──────────────────────────────────────────────────────────
-function openAlert({ server, type, severity, message, value, threshold }) {
+function openAlert({ server, type, severity, message, value, threshold, subject }) {
   const result = db.prepare(
-    'INSERT INTO alerts (server, type, severity, message, value, threshold, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(server, type, severity, message, value ?? null, threshold ?? null, new Date().toISOString());
+    'INSERT INTO alerts (server, type, severity, message, value, threshold, subject, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(server, type, severity, message, value ?? null, threshold ?? null, subject ?? null, new Date().toISOString());
   return getAlert(result.lastInsertRowid);
 }
 
@@ -710,10 +756,13 @@ function getAlert(id) {
   return db.prepare('SELECT * FROM alerts WHERE id = ?').get(id);
 }
 
-function getOpenAlert(server, type) {
+// `subject` scopes the alert within (server, type) — omitted, it means
+// "the one alert for this server and type", which is how every
+// per-sample type behaves. `IS` rather than `=` so NULL compares.
+function getOpenAlert(server, type, subject = null) {
   return db.prepare(
-    'SELECT * FROM alerts WHERE server = ? AND type = ? AND resolved_at IS NULL ORDER BY started_at DESC LIMIT 1'
-  ).get(server, type);
+    'SELECT * FROM alerts WHERE server = ? AND type = ? AND subject IS ? AND resolved_at IS NULL ORDER BY started_at DESC LIMIT 1'
+  ).get(server, type, subject);
 }
 
 // Track the peak observed value while the alert is open
@@ -746,6 +795,114 @@ function getAlerts({ activeOnly = false, limit = 100 } = {}) {
   return db.prepare(
     'SELECT * FROM alerts ORDER BY (resolved_at IS NULL) DESC, started_at DESC LIMIT ?'
   ).all(limit);
+}
+
+// ─── Service checks ──────────────────────────────────────────────────
+// `config` is stored as JSON text but always crosses this boundary as an
+// object — every caller needs it parsed, none needs the raw string.
+function hydrateCheck(row) {
+  if (!row) return row;
+  let config = {};
+  try {
+    config = JSON.parse(row.config || '{}');
+  } catch (_) { /* hand-edited DB: an unreadable config means no options */ }
+  return { ...row, config, enabled: !!row.enabled };
+}
+
+const CHECK_FIELDS = ['name', 'kind', 'target', 'run_from', 'config', 'interval_sec',
+  'timeout_ms', 'failures_to_open', 'successes_to_resolve', 'severity', 'enabled'];
+
+function createServiceCheck(check) {
+  db.prepare(`
+    INSERT INTO service_checks (id, name, kind, target, run_from, config, interval_sec,
+      timeout_ms, failures_to_open, successes_to_resolve, severity, enabled)
+    VALUES (@id, @name, @kind, @target, @run_from, @config, @interval_sec,
+      @timeout_ms, @failures_to_open, @successes_to_resolve, @severity, @enabled)
+  `).run({
+    id: check.id,
+    name: check.name,
+    kind: check.kind,
+    target: check.target,
+    run_from: check.runFrom || 'dashboard',
+    config: JSON.stringify(check.config || {}),
+    interval_sec: check.intervalSec ?? 60,
+    timeout_ms: check.timeoutMs ?? 10000,
+    failures_to_open: check.failuresToOpen ?? 2,
+    successes_to_resolve: check.successesToResolve ?? 2,
+    severity: check.severity || 'critical',
+    enabled: check.enabled === false ? 0 : 1,
+  });
+  return getServiceCheck(check.id);
+}
+
+function updateServiceCheck(id, patch) {
+  const mapped = {
+    name: patch.name,
+    kind: patch.kind,
+    target: patch.target,
+    run_from: patch.runFrom,
+    config: patch.config === undefined ? undefined : JSON.stringify(patch.config || {}),
+    interval_sec: patch.intervalSec,
+    timeout_ms: patch.timeoutMs,
+    failures_to_open: patch.failuresToOpen,
+    successes_to_resolve: patch.successesToResolve,
+    severity: patch.severity,
+    enabled: patch.enabled === undefined ? undefined : (patch.enabled ? 1 : 0),
+  };
+  const set = CHECK_FIELDS.filter(f => mapped[f] !== undefined);
+  if (set.length > 0) {
+    db.prepare(
+      `UPDATE service_checks SET ${set.map(f => `${f} = @${f}`).join(', ')}, updated_at = datetime('now') WHERE id = @id`
+    ).run({ ...mapped, id });
+  }
+  return getServiceCheck(id);
+}
+
+function getServiceCheck(id) {
+  return hydrateCheck(db.prepare('SELECT * FROM service_checks WHERE id = ?').get(id));
+}
+
+function getServiceChecks() {
+  return db.prepare('SELECT * FROM service_checks ORDER BY name').all().map(hydrateCheck);
+}
+
+function deleteServiceCheck(id) {
+  db.prepare('DELETE FROM service_check_results WHERE check_id = ?').run(id);
+  return db.prepare('DELETE FROM service_checks WHERE id = ?').run(id).changes > 0;
+}
+
+function recordCheckResult({ checkId, ok, latencyMs, statusCode, error }) {
+  db.prepare(
+    'INSERT INTO service_check_results (check_id, timestamp, ok, latency_ms, status_code, error) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(checkId, new Date().toISOString(), ok ? 1 : 0, latencyMs ?? null, statusCode ?? null, error || null);
+}
+
+function getCheckResults(checkId, limit = 100) {
+  return db.prepare(
+    'SELECT * FROM service_check_results WHERE check_id = ? ORDER BY timestamp DESC LIMIT ?'
+  ).all(checkId, limit);
+}
+
+// Latest result per check in one query — the list endpoint would
+// otherwise issue one per check
+function getLatestCheckResults() {
+  return db.prepare(`
+    SELECT r.* FROM service_check_results r
+    JOIN (SELECT check_id, MAX(timestamp) AS ts FROM service_check_results GROUP BY check_id) m
+      ON r.check_id = m.check_id AND r.timestamp = m.ts
+  `).all();
+}
+
+function getCheckUptime(sinceIso) {
+  return db.prepare(`
+    SELECT check_id, COUNT(*) AS total, SUM(ok) AS passed, AVG(latency_ms) AS avg_latency
+    FROM service_check_results WHERE timestamp > ? GROUP BY check_id
+  `).all(sinceIso);
+}
+
+function pruneCheckResults(days) {
+  const cutoff = new Date(Date.now() - days * 86400e3).toISOString();
+  return db.prepare('DELETE FROM service_check_results WHERE timestamp < ?').run(cutoff).changes;
 }
 
 // ─── Thresholds ──────────────────────────────────────────────────────
@@ -832,6 +989,17 @@ module.exports = {
   resolveAlert,
   acknowledgeAlert,
   getAlerts,
+  // Service checks
+  createServiceCheck,
+  updateServiceCheck,
+  getServiceCheck,
+  getServiceChecks,
+  deleteServiceCheck,
+  recordCheckResult,
+  getCheckResults,
+  getLatestCheckResults,
+  getCheckUptime,
+  pruneCheckResults,
   // Thresholds
   getThreshold,
   getAllThresholds,
