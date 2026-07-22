@@ -53,6 +53,7 @@ const TYPE_LABELS: Record<Alert['type'], string> = {
   'pg-replication': 'PG REPL',
   script: 'SCRIPT',
   ai: 'AI',
+  service: 'SERVICE',
 }
 
 function AlertRow({ alert, serverName, onAck, suggestions, onOpenScript }: {

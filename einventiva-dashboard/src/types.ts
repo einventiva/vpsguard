@@ -106,7 +106,7 @@ export interface MetricEntry {
 export interface Alert {
   id: number
   server: string
-  type: 'cpu' | 'memory' | 'disk' | 'offline' | 'disk-eta' | 'cron' | 'pg-connections' | 'pg-replication' | 'inodes' | 'systemd' | 'ssl' | 'flapping' | 'script' | 'ai'
+  type: 'cpu' | 'memory' | 'disk' | 'offline' | 'disk-eta' | 'cron' | 'pg-connections' | 'pg-replication' | 'inodes' | 'systemd' | 'ssl' | 'flapping' | 'script' | 'ai' | 'service'
   severity: 'warning' | 'critical'
   message: string
   value: number | null
@@ -114,6 +114,82 @@ export interface Alert {
   started_at: string
   resolved_at: string | null
   acknowledged_at: string | null
+}
+
+// ─── Service checks ──────────────────────────────────────────────────
+
+export type ServiceCheckKind = 'http' | 'tcp' | 'command' | 'container'
+
+// Kinds that probe something local to a host; they cannot run from the
+// dashboard, and the editor hides the dashboard option for them.
+export const SERVER_ONLY_KINDS: ServiceCheckKind[] = ['command', 'container']
+
+export interface ServiceCheckConfig {
+  method?: string
+  expectStatus?: string
+  expectBody?: string
+  jsonPath?: string
+  jsonEquals?: string
+  // Values keep their ${VAR} form — they are resolved from the backend's
+  // environment at request time, so no secret is ever stored or sent here
+  headers?: Record<string, string>
+  followRedirects?: boolean
+  runtime?: 'docker' | 'systemd'
+}
+
+export interface ServiceCheckResult {
+  ok: boolean
+  latencyMs: number | null
+  statusCode: number | null
+  error: string | null
+  timestamp?: string
+}
+
+export interface ServiceCheck {
+  id: string
+  name: string
+  kind: ServiceCheckKind
+  target: string
+  run_from: string
+  config: ServiceCheckConfig
+  interval_sec: number
+  timeout_ms: number
+  failures_to_open: number
+  successes_to_resolve: number
+  severity: 'warning' | 'critical'
+  enabled: boolean
+  created_at: string
+  updated_at: string
+  // null means the check has never run — unknown, not down
+  lastResult: ServiceCheckResult | null
+  uptime24hPct: number | null
+  avgLatencyMs24h: number | null
+}
+
+// Raw DB row as returned by the history endpoint
+export interface ServiceCheckHistoryRow {
+  id: number
+  check_id: string
+  timestamp: string
+  ok: number
+  latency_ms: number | null
+  status_code: number | null
+  error: string | null
+}
+
+export interface ServiceCheckInput {
+  id?: string
+  name: string
+  kind: ServiceCheckKind
+  target: string
+  runFrom: string
+  config: ServiceCheckConfig
+  intervalSec: number
+  timeoutMs: number
+  failuresToOpen: number
+  successesToResolve: number
+  severity: 'warning' | 'critical'
+  enabled: boolean
 }
 
 export interface Thresholds {
