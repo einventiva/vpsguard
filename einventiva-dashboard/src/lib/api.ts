@@ -24,6 +24,10 @@ import type {
   ServerInfo,
   PgBasicResponse,
   PgDetailedResponse,
+  ServiceCheck,
+  ServiceCheckInput,
+  ServiceCheckResult,
+  ServiceCheckHistoryRow,
 } from '@/types'
 import { API_BASE, API_TOKEN } from './config'
 import { transformServerStatus } from './parsers'
@@ -452,6 +456,34 @@ export const api = {
     const params = new URLSearchParams({ container })
     if (db) params.set('db', db)
     return fetchApi<PgDetailedResponse>(`/postgres/${server}/detailed?${params}`)
+  },
+
+  // Service check endpoints
+  async getServiceChecks(): Promise<ServiceCheck[]> {
+    const response = await fetchApi<{ items: ServiceCheck[] }>('/services')
+    return response.items || []
+  },
+
+  async createServiceCheck(data: ServiceCheckInput): Promise<ServiceCheck> {
+    return fetchApi<ServiceCheck>('/services', { method: 'POST', body: JSON.stringify(data) })
+  },
+
+  async updateServiceCheck(id: string, data: Partial<ServiceCheckInput>): Promise<ServiceCheck> {
+    return fetchApi<ServiceCheck>(`/services/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+  },
+
+  async deleteServiceCheck(id: string): Promise<void> {
+    await fetchApi<any>(`/services/${id}`, { method: 'DELETE' })
+  },
+
+  // Probe once without recording the result or touching alert state
+  async runServiceCheck(id: string): Promise<ServiceCheckResult> {
+    return fetchApi<ServiceCheckResult>(`/services/${id}/run`, { method: 'POST' })
+  },
+
+  async getServiceCheckHistory(id: string, limit = 100): Promise<ServiceCheckHistoryRow[]> {
+    const response = await fetchApi<{ results: ServiceCheckHistoryRow[] }>(`/services/${id}/history?limit=${limit}`)
+    return response.results || []
   },
 
   // Health check
