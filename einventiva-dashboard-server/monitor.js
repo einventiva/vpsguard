@@ -9,7 +9,7 @@ const { log } = require('./services/logger');
 const { handleError } = require('./services/logger');
 const { httpAuth, socketAuth } = require('./middleware/auth');
 const { registerHandlers } = require('./websocket/handlers');
-const { startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop } = require('./services/backgroundJobs');
+const { startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop, startServiceCheckLoop } = require('./services/backgroundJobs');
 
 // ─── Express + HTTP Server ──────────────────────────────────────────
 const app = express();
@@ -44,6 +44,7 @@ app.use('/api', require('./routes/ai')(getServers, io));
 app.use('/api', require('./routes/alerts')());
 app.use('/api', require('./routes/thresholds')(getServers));
 app.use('/api', require('./routes/projections')(getServers));
+app.use('/api', require('./routes/services')(getServers));
 
 // 404 handler
 app.use((req, res) => {
@@ -83,7 +84,21 @@ app.use((req, res) => {
       'POST /api/servers': 'Create server',
       'PUT /api/servers/:key': 'Update server',
       'DELETE /api/servers/:key': 'Delete server',
-      'POST /api/servers/:key/test': 'Test SSH connection'
+      'POST /api/servers/:key/test': 'Test SSH connection',
+      'GET /api/services': 'List service checks with latest result and 24h uptime',
+      'POST /api/services': 'Create service check',
+      'PUT /api/services/:id': 'Update service check',
+      'DELETE /api/services/:id': 'Delete service check',
+      'POST /api/services/:id/run': 'Run a service check once, without recording it',
+      'GET /api/services/:id/history': 'Recent results for a service check',
+      'GET /api/ai/config': 'AI module configuration and availability',
+      'GET /api/ai/models': 'Models offered by the configured provider',
+      'PUT /api/ai/model': 'Override the analysis model',
+      'POST /api/ai/analyze': 'Run a fleet analysis now',
+      'POST /api/ai/interpret': 'Interpret a script result',
+      'GET /api/ai/analyses': 'Analysis history',
+      'GET /api/ai/analyses/:id': 'One analysis with findings and action plan',
+      'PUT /api/ai/analyses/:id/steps/:index': 'Set an action-plan step status'
     }
   });
 });
@@ -113,6 +128,7 @@ startSlowCheckLoop(io, getServers);
 startPgSampleLoop(io, getServers);
 startSchedulerLoop(io, getServers);
 startAiAnalysisLoop(io, getServers);
+startServiceCheckLoop(io, getServers);
 
 server.listen(PORT, () => {
   log(`Server started on http://localhost:${PORT}`);

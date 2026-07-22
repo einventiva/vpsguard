@@ -94,6 +94,15 @@ const PRUNE_KEEP_DAYS = parseInt(process.env.PRUNE_KEEP_DAYS || '30');
 // grows ~35x faster than metrics_history — keep it short
 const DETAIL_KEEP_DAYS = parseInt(process.env.DETAIL_KEEP_DAYS || '3');
 
+// Service checks: the loop ticks often and each check decides for
+// itself whether it is due, so per-check intervals need no scheduler.
+const SERVICE_CHECK_TICK = 15000;
+const SERVICE_CHECK_STARTUP_DELAY = 20 * 1000;
+// Probes are mostly waiting on the network; the cap exists to keep a
+// large fleet from opening dozens of SSH channels at once
+const SERVICE_CHECK_CONCURRENCY = parseInt(process.env.SERVICE_CHECK_CONCURRENCY || '8');
+const SERVICE_CHECK_KEEP_DAYS = parseInt(process.env.SERVICE_CHECK_KEEP_DAYS || '30');
+
 // ─── Server parsing ─────────────────────────────────────────────────
 
 function parseServersFromEnv() {
@@ -188,6 +197,10 @@ module.exports = {
   PG_CONN_ALERT_PCT,
   PG_REPL_LAG_ALERT_MB,
   PG_USER_OVERRIDES,
+  SERVICE_CHECK_TICK,
+  SERVICE_CHECK_STARTUP_DELAY,
+  SERVICE_CHECK_CONCURRENCY,
+  SERVICE_CHECK_KEEP_DAYS,
   parseServersFromEnv,
   loadServersFromDB,
   seedServersFromEnv,
