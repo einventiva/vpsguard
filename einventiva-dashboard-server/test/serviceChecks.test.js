@@ -7,7 +7,7 @@ const {
   statusMatches, interpolateEnv, resolveHeaders, readJsonPath, evaluateBody, needsBody,
   parseHostPort, parseCurlOutput, parseTcpProbeOutput, parseCommandOutput,
   evaluateContainerState, evaluateSystemdState, buildHttpProbeScript, buildTcpProbeScript,
-  runCheck, shq,
+  runCheck, shq, uptimePct,
 } = require('../services/serviceChecks');
 
 const noServers = { getServers: () => ({}) };
@@ -15,6 +15,25 @@ const noServers = { getServers: () => ({}) };
 const check = (over = {}) => ({
   id: 'c', name: 'Check', kind: 'http', target: 'http://localhost:1',
   run_from: 'dashboard', config: {}, timeout_ms: 2000, ...over,
+});
+
+describe('uptimePct', () => {
+  test('no samples is null — never 0% and never 100%', () => {
+    // Both would be lies: 0 reads as a total outage, 100 as verified perfect
+    assert.strictEqual(uptimePct(undefined), null);
+    assert.strictEqual(uptimePct({ total: 0, passed: 0 }), null);
+  });
+
+  test('rounds to one decimal', () => {
+    assert.strictEqual(uptimePct({ total: 3, passed: 2 }), 66.7);
+    assert.strictEqual(uptimePct({ total: 34, passed: 33 }), 97.1);
+  });
+
+  test('a single failure moves it off 100', () => {
+    assert.strictEqual(uptimePct({ total: 4, passed: 4 }), 100);
+    assert.strictEqual(uptimePct({ total: 4, passed: 3 }), 75);
+    assert.strictEqual(uptimePct({ total: 4, passed: 0 }), 0);
+  });
 });
 
 describe('statusMatches', () => {

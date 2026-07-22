@@ -8,6 +8,7 @@ const db = require('../db');
 const { getCached } = require('./cache');
 const { computeProjections } = require('./projections');
 const { parseCpuPercent } = require('./metrics');
+const { uptimePct } = require('./serviceChecks');
 
 const r1 = (n) => (n == null || Number.isNaN(n) ? null : Math.round(n * 10) / 10);
 
@@ -81,7 +82,7 @@ function formatServiceCheck(check, lastResult, uptime) {
     ok,
     latencyMs: lastResult.latency_ms ?? null,
     error: ok ? null : (lastResult.error || 'check failed'),
-    uptime24hPct: uptime && uptime.total > 0 ? Math.round((uptime.passed / uptime.total) * 1000) / 10 : null,
+    uptime24hPct: uptimePct(uptime),
   };
 }
 

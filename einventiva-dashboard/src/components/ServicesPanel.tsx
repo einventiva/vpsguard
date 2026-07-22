@@ -198,10 +198,17 @@ export function ServicesPanel({ servers, serverKeys }: ServicesPanelProps) {
   // live without polling it
   useEffect(() => {
     const socket = getSharedSocket()
-    const onResult = (payload: ServiceCheckResult & { checkId: string }) => {
+    const onResult = (payload: ServiceCheckResult & { checkId: string; uptime24hPct?: number | null; avgLatencyMs24h?: number | null }) => {
       const ts = payload.timestamp ?? new Date().toISOString()
       setChecks(prev => prev.map(c => c.id === payload.checkId
-        ? { ...c, lastResult: { ok: payload.ok, latencyMs: payload.latencyMs, statusCode: payload.statusCode, error: payload.error, timestamp: ts } }
+        ? {
+            ...c,
+            lastResult: { ok: payload.ok, latencyMs: payload.latencyMs, statusCode: payload.statusCode, error: payload.error, timestamp: ts },
+            // Carried on the event so a red check can never sit next to an
+            // uptime frozen at page load
+            uptime24hPct: payload.uptime24hPct !== undefined ? payload.uptime24hPct : c.uptime24hPct,
+            avgLatencyMs24h: payload.avgLatencyMs24h !== undefined ? payload.avgLatencyMs24h : c.avgLatencyMs24h,
+          }
         : c))
       // Keep an open detail timeline moving without a refetch
       setHistory(prev => prev[payload.checkId]
@@ -571,12 +578,17 @@ export function ServicesPanel({ servers, serverKeys }: ServicesPanelProps) {
           )}
 
           {!isNew && testResult && testResult.id === editingId && (
-            <div className={`flex items-center gap-2 p-3 rounded text-sm ${testResult.result.ok ? 'bg-green-900/20 text-green-200' : 'bg-red-900/20 text-red-200'}`}>
-              {testResult.result.ok ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
-              <span>
-                {testResult.result.ok ? 'Check passed' : testResult.result.error}
-                {testResult.result.latencyMs != null && ` · ${testResult.result.latencyMs}ms`}
-              </span>
+            <div className={`p-3 rounded text-sm ${testResult.result.ok ? 'bg-green-900/20 text-green-200' : 'bg-red-900/20 text-red-200'}`}>
+              <div className="flex items-center gap-2">
+                {testResult.result.ok ? <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
+                <span>
+                  {testResult.result.ok ? 'Check passed' : testResult.result.error}
+                  {testResult.result.latencyMs != null && ` · ${testResult.result.latencyMs}ms`}
+                </span>
+              </div>
+              <p className="mt-1 pl-6 text-xs opacity-70">
+                Manual test — not recorded, and it does not change the status, uptime or alerts.
+              </p>
             </div>
           )}
 
@@ -772,12 +784,19 @@ export function ServicesPanel({ servers, serverKeys }: ServicesPanelProps) {
                               )}
 
                               {testR && (
-                                <div className={`flex items-center gap-2 p-2 rounded text-xs ${testR.ok ? 'bg-green-900/20 text-green-300' : 'bg-red-900/20 text-red-300'}`}>
-                                  {testR.ok ? <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />}
-                                  <span className="truncate">
-                                    {testR.ok ? 'Check passed' : testR.error}
-                                    {testR.latencyMs != null && ` · ${testR.latencyMs}ms`}
-                                  </span>
+                                <div className={`p-2 rounded text-xs ${testR.ok ? 'bg-green-900/20 text-green-300' : 'bg-red-900/20 text-red-300'}`}>
+                                  <div className="flex items-center gap-2">
+                                    {testR.ok ? <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />}
+                                    <span className="truncate">
+                                      {testR.ok ? 'Check passed' : testR.error}
+                                      {testR.latencyMs != null && ` · ${testR.latencyMs}ms`}
+                                    </span>
+                                  </div>
+                                  {/* A manual probe deliberately does not count: otherwise a
+                                      red dashboard could be cleared by clicking Test */}
+                                  <p className="mt-1 pl-5 opacity-70">
+                                    Manual test — not recorded, and it does not change the status, uptime or alerts above.
+                                  </p>
                                 </div>
                               )}
 
