@@ -18,6 +18,7 @@ Monitor your VPS fleet from a single dashboard: live CPU, memory, disk metrics, 
 - **Docker Management** — List containers with live CPU/RAM/Disk I/O stats, status badges, and log viewer
 - **Script Execution** — Create, edit, and run shell scripts remotely with live terminal output streaming, persistent execution history with stored output, last-run badges per script, fleet-wide "Run on all" with side-by-side panes, and a typed-confirmation guard for destructive scripts
 - **Scheduled Scripts** — Give any script a cron schedule and target servers; it runs automatically, lands in the same history, and a `script` alert fires when a scheduled run fails (auto-resolves on the next passing run)
+- **Service Checks** — Machine metrics say a host is healthy; a service check says the thing running on it is actually answering. Define checks from the UI — no code, no restart — of four kinds: **HTTP** (expected status plus optional body substring or JSON-field assertion), **TCP port**, **shell command** (exit 0 = healthy, the universal escape hatch for any CLI), and **Docker container / systemd unit**. Each check declares its own vantage point: `dashboard` probes over the network and sees what a real user sees, or a server key runs the probe over SSH and reaches loopback-only services — neither view can replace the other. Checks are grouped by vantage point with per-group up counts, expandable rows show a status-page timeline of recent results, and per-check hysteresis (`N` fails to open, `M` passes to resolve) drives ordinary `service` alerts through the standard pipeline — including the alert→script bridge, so a failing service offers its remediation script in one click. Auth header values support `${VAR}` interpolation resolved from the backend environment at request time, so secrets never land in the database; response bodies are never persisted, only the boolean verdict. The AI analysis receives every check's latest state (a check that never ran reads as *unknown*, never as down)
 - **Alert → Script Bridge** — Tag scripts with the alert types they remediate; active alerts show one-click shortcuts that open the script with the affected server preselected
 - **AI Analysis (Prevention)** — LLM analysis of a compact, pre-aggregated fleet snapshot (status, alerts, trends, projections, PostgreSQL — never raw script outputs) via any OpenAI-compatible endpoint (LiteLLM, Ollama, OpenAI, xAI) or the native Anthropic API. Returns an executive summary, prioritized findings tagged by evolution vs the previous run (worse/improved/new/persisting), and a consolidated **action plan** grouped by horizon (now / this week / watch) with step dependencies and suggested scripts. Runs on demand or on a cron schedule (`AI_ANALYSIS_SCHEDULE`), with desktop notifications and optional per-server `ai` alerts (`AI_OPEN_ALERTS`). Model is selectable in the UI (persisted server-side); planned reboots are recognized as maintenance, not incidents. A companion **"Interpret with AI"** button on any script result turns raw output into an actionable verdict — reconciling with *why* the script was run so it confirms, rules out, or flags a result as inconclusive instead of contradicting the plan. Action-plan steps then **close their loop**: running a script from a step marks it applied, the interpretation attaches its verdict (verifying the step when the concern is settled), you can mark steps done or dismissed by hand, and closed steps move to a collapsed *Completed* section so the active plan shrinks as you work it. Secrets stay in `.env`; the AI recommends — it never executes anything
 - **Crontab Manager** — View, create, toggle, and delete cron jobs with preset schedules and human-readable descriptions
@@ -67,6 +68,7 @@ vpsguard/
 │   │   │   ├── CrontabPanel.tsx         # Crontab manager (+ last run/overdue)
 │   │   │   ├── LogViewer.tsx            # Container log viewer
 │   │   │   ├── ServersPanel.tsx         # Server CRUD
+│   │   │   ├── ServicesPanel.tsx        # Service checks, grouped by vantage point
 │   │   │   ├── SetupWizardPanel.tsx     # Automated server provisioning
 │   │   │   ├── ErrorBoundary.tsx        # Error boundary wrapper
 │   │   │   └── ui/                      # 40+ Radix UI components
@@ -103,6 +105,7 @@ vpsguard/
 │   │   ├── servers.js                   # Server CRUD + SSH test
 │   │   ├── crontab.js                   # Crontab CRUD + execution watch
 │   │   ├── history.js                   # Metrics history (ranges) + drill-down
+│   │   ├── services.js                  # Service check CRUD + run + history
 │   │   └── ai.js                        # AI analysis, config, model selection
 │   ├── services/
 │   │   ├── ssh.js                       # SSH execution (ControlMaster mux)
@@ -114,6 +117,7 @@ vpsguard/
 │   │   ├── projections.js               # Linear-regression projections
 │   │   ├── cronWatch.js                 # Syslog CRON execution parsing
 │   │   ├── sslCheck.js                  # Certbot certificate expiry check
+│   │   ├── serviceChecks.js             # Service check probes (http/tcp/command/container)
 │   │   ├── pg.js                        # Shared PG helpers
 │   │   ├── pgHistory.js                 # PostgreSQL 5-min sampler
 │   │   ├── notify.js                    # Alert webhook delivery
@@ -182,6 +186,9 @@ PG_REPL_LAG_ALERT_MB=100
 # ALERT_WEBHOOK_URL=https://example.com/webhook
 # Optional: explicit container->role mapping when PG role auto-detection can't guess
 # PG_USER_OVERRIDES={"pg-replica-foo":"foo_legacy_user"}
+# Service checks: max concurrent probes (default 8) and result retention in days (default 30)
+# SERVICE_CHECK_CONCURRENCY=8
+# SERVICE_CHECK_KEEP_DAYS=30
 ```
 
 Start the backend:
@@ -307,6 +314,12 @@ You can create, edit, and delete scripts from the dashboard UI.
 | PUT | `/api/servers/:key` | Update server |
 | DELETE | `/api/servers/:key` | Delete server |
 | POST | `/api/servers/:key/test` | Test SSH connection |
+| GET | `/api/services` | Service checks with latest result and 24h uptime |
+| POST | `/api/services` | Create service check |
+| PUT | `/api/services/:id` | Update service check |
+| DELETE | `/api/services/:id` | Delete service check |
+| POST | `/api/services/:id/run` | Probe once, without recording or alerting |
+| GET | `/api/services/:id/history` | Recent results for a check |
 
 ### WebSocket Events
 
@@ -315,6 +328,7 @@ You can create, edit, and delete scripts from the dashboard UI.
 | `metrics:update` | Server → Client | Real-time server metrics |
 | `alert:opened` | Server → Client | Alert opened (full row) |
 | `alert:resolved` | Server → Client | Alert auto-resolved |
+| `check:result` | Server → Client | Service check result (live status updates) |
 | `execute:script` | Client → Server | Run a script |
 | `script:output` | Server → Client | Live script output |
 | `wizard:setup` | Client → Server | Start server provisioning |
@@ -343,6 +357,7 @@ MIT
 - **Gestión Docker** — Lista de containers con estadísticas en vivo de CPU/RAM/Disco, badges de estado y visor de logs
 - **Ejecución de Scripts** — Crea, edita y ejecuta scripts de shell remotamente con salida en terminal en tiempo real, historial persistente de ejecuciones con output almacenado, badges de última ejecución por script, "Run on all" para toda la flota con paneles lado a lado, y guarda de confirmación tipeada para scripts destructivos
 - **Scripts Programados** — Dale a cualquier script un schedule cron y servidores destino; corre automáticamente, cae en el mismo historial, y una alerta `script` se dispara cuando una corrida programada falla (se resuelve sola con la siguiente corrida exitosa)
+- **Checks de Servicio** — Las métricas de máquina dicen que el host está sano; un check de servicio dice que lo que corre encima realmente responde. Define checks desde la UI — sin código, sin reiniciar — de cuatro tipos: **HTTP** (status esperado más aserción opcional de substring o campo JSON), **puerto TCP**, **comando shell** (exit 0 = sano, el escape universal para cualquier CLI) y **contenedor Docker / unidad systemd**. Cada check declara su punto de observación: `dashboard` sondea por la red y ve lo que ve un usuario real, o una clave de servidor ejecuta el probe por SSH y alcanza servicios bindeados a loopback — ninguna vista sustituye a la otra. Los checks se agrupan por punto de observación con contadores por grupo, las filas se expanden a un timeline tipo status page de resultados recientes, y la histéresis por check (`N` fallos para abrir, `M` éxitos para resolver) dispara alertas `service` normales por el pipeline estándar — incluido el puente alerta→script, así un servicio caído ofrece su script de remediación en un clic. Los valores de cabeceras soportan interpolación `${VAR}` resuelta desde el entorno del backend al momento de la petición, así que los secretos nunca tocan la base de datos; los cuerpos de respuesta jamás se persisten, solo el veredicto booleano. El análisis de IA recibe el último estado de cada check (un check que nunca corrió se lee como *desconocido*, nunca como caído)
 - **Puente Alertas → Scripts** — Etiqueta scripts con los tipos de alerta que remedian; las alertas activas muestran accesos de un clic que abren el script con el servidor afectado preseleccionado
 - **Análisis con IA (Prevención)** — Análisis LLM de un snapshot compacto y pre-agregado de la flota (estado, alertas, tendencias, proyecciones, PostgreSQL — nunca outputs crudos de scripts) vía cualquier endpoint OpenAI-compatible (LiteLLM, Ollama, OpenAI, xAI) o la API nativa de Anthropic. Devuelve un resumen ejecutivo, hallazgos priorizados etiquetados por evolución vs la corrida anterior (empeoró/mejoró/nuevo/persiste), y un **plan de acción** consolidado agrupado por horizonte (ahora / esta semana / monitorear) con dependencias entre pasos y scripts sugeridos. Bajo demanda o programado por cron (`AI_ANALYSIS_SCHEDULE`), con notificaciones de escritorio y alertas `ai` por servidor opcionales (`AI_OPEN_ALERTS`). El modelo se elige en la UI (persistido en el backend); los reboots planeados se reconocen como mantenimiento, no incidentes. Un botón **"Interpretar con IA"** en cualquier resultado de script convierte el output crudo en un veredicto accionable — reconciliando con *por qué* se corrió el script, así confirma, descarta o marca un resultado como inconcluso en vez de contradecir el plan. Los pasos del plan de acción luego **cierran su ciclo**: ejecutar un script desde un paso lo marca aplicado, la interpretación le adjunta su veredicto (verificando el paso cuando el motivo queda resuelto), puedes marcarlos hechos o descartarlos a mano, y los pasos cerrados pasan a una sección *Completado* colapsada, así el plan activo se encoge conforme trabajas. Los secretos viven en `.env`; la IA recomienda — nunca ejecuta nada
 - **Gestor de Crontab** — Ver, crear, activar/desactivar y eliminar cron jobs con presets y descripciones legibles
@@ -392,6 +407,7 @@ vpsguard/
 │   │   │   ├── CrontabPanel.tsx         # Gestor de crontab (+ last run/overdue)
 │   │   │   ├── LogViewer.tsx            # Visor de logs de containers
 │   │   │   ├── ServersPanel.tsx         # CRUD de servidores
+│   │   │   ├── ServicesPanel.tsx        # Checks de servicio, agrupados por punto de observación
 │   │   │   ├── SetupWizardPanel.tsx     # Provisionamiento automático
 │   │   │   ├── ErrorBoundary.tsx        # Wrapper de error boundary
 │   │   │   └── ui/                      # 40+ componentes Radix UI
@@ -428,6 +444,7 @@ vpsguard/
 │   │   ├── servers.js                   # CRUD de servidores + test SSH
 │   │   ├── crontab.js                   # CRUD de crontab + vigilancia de ejecución
 │   │   ├── history.js                   # Historial de métricas (rangos) + drill-down
+│   │   ├── services.js                  # CRUD de checks de servicio + run + historial
 │   │   └── ai.js                        # Análisis IA, config, selección de modelo
 │   ├── services/
 │   │   ├── ssh.js                       # Ejecución SSH (multiplexing ControlMaster)
@@ -439,6 +456,7 @@ vpsguard/
 │   │   ├── projections.js               # Proyecciones por regresión lineal
 │   │   ├── cronWatch.js                 # Parsing de ejecuciones CRON en syslog
 │   │   ├── sslCheck.js                  # Chequeo de expiración de certificados (certbot)
+│   │   ├── serviceChecks.js             # Probes de checks de servicio (http/tcp/comando/contenedor)
 │   │   ├── pg.js                        # Helpers PG compartidos
 │   │   ├── pgHistory.js                 # Muestreador PostgreSQL cada 5 min
 │   │   ├── notify.js                    # Entrega de webhook de alertas
@@ -507,6 +525,9 @@ PG_REPL_LAG_ALERT_MB=100
 # ALERT_WEBHOOK_URL=https://example.com/webhook
 # Opcional: mapeo explícito contenedor->rol cuando la autodetección no puede adivinar
 # PG_USER_OVERRIDES={"pg-replica-foo":"foo_legacy_user"}
+# Checks de servicio: probes concurrentes máximos (default 8) y retención de resultados en días (default 30)
+# SERVICE_CHECK_CONCURRENCY=8
+# SERVICE_CHECK_KEEP_DAYS=30
 ```
 
 Inicia el backend:
@@ -632,6 +653,12 @@ Puedes crear, editar y eliminar scripts desde la interfaz del dashboard.
 | PUT | `/api/servers/:key` | Actualizar servidor |
 | DELETE | `/api/servers/:key` | Eliminar servidor |
 | POST | `/api/servers/:key/test` | Probar conexión SSH |
+| GET | `/api/services` | Checks de servicio con último resultado y uptime 24h |
+| POST | `/api/services` | Crear check de servicio |
+| PUT | `/api/services/:id` | Actualizar check de servicio |
+| DELETE | `/api/services/:id` | Eliminar check de servicio |
+| POST | `/api/services/:id/run` | Probar una vez, sin registrar ni alertar |
+| GET | `/api/services/:id/history` | Resultados recientes de un check |
 
 ### Eventos WebSocket
 
@@ -640,6 +667,7 @@ Puedes crear, editar y eliminar scripts desde la interfaz del dashboard.
 | `metrics:update` | Server → Client | Métricas en tiempo real |
 | `alert:opened` | Server → Client | Alerta abierta (fila completa) |
 | `alert:resolved` | Server → Client | Alerta auto-resuelta |
+| `check:result` | Server → Client | Resultado de un check de servicio (estado en vivo) |
 | `execute:script` | Client → Server | Ejecutar un script |
 | `script:output` | Server → Client | Salida en vivo del script |
 | `wizard:setup` | Client → Server | Iniciar provisionamiento |
