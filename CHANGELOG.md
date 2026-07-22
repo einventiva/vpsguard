@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.12.0] — 2026-07-22
+
+#### Added
+- **Service checks — monitor user-defined services, not just machines**: a host can sit at 12% CPU with plenty of disk while the API it exists to run returns 500, and every card stays green. Every watcher until now was hardcoded; checks are now defined from the UI, with no code and no restart. Four kinds — **HTTP** (expected status plus optional body-substring or JSON-field assertion), **TCP port**, **shell command** (exit 0 = healthy, the universal escape hatch for any CLI), and **Docker container / systemd unit** — and each check declares its own vantage point: `dashboard` probes over the network and sees what a real user sees; a server key runs the probe over the existing SSH transport and reaches loopback-only services. Neither view can replace the other, and in a typical firewalled fleet only the public entrypoint is even reachable from outside. Per-check hysteresis (`N` consecutive fails to open, `M` passes to resolve) drives ordinary `service` alerts through the standard pipeline — lifecycle, socket, native notification, webhook, and the alert→script bridge, so a failing service offers its remediation script in one click. The panel groups checks by vantage point with per-group up counts and a fleet summary strip, and each row expands to a status-page style timeline of recent results with the actions inline. Secrets never land in the database: header values keep their `${VAR}` form and resolve from the backend environment at request time; response bodies are never persisted or emitted, only the boolean verdict. The AI analysis receives every check's latest state and 24h uptime — with a check that has never run reported as *unknown*, never as down (`GET/POST /api/services`, `PUT/DELETE /api/services/:id`, `POST /api/services/:id/run`, `GET /api/services/:id/history`, socket event `check:result`, env `SERVICE_CHECK_CONCURRENCY` / `SERVICE_CHECK_KEEP_DAYS`)
+
+#### Changed
+- **Alerts gained a `subject` column**: open-alert deduplication was keyed on `(server, type)`, so two failing checks on the same host would collide — the first opened the alert and the second was silently swallowed, precisely the failure service checks exist to prevent. `subject` scopes the alert within server and type (NULL-safe, so every existing alert type behaves exactly as before); it also unblocks future per-container `flapping` and per-certificate `ssl` alerts, which today can hold only one open alert per server
+
 ### [1.11.2] — 2026-07-20
 
 #### Fixed
@@ -167,6 +175,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.12.0] — 2026-07-22
+
+#### Añadido
+- **Checks de servicio — monitorear servicios definidos por el usuario, no solo máquinas**: un host puede estar al 12% de CPU y con disco de sobra mientras la API para la que existe devuelve 500, y todas las tarjetas siguen verdes. Hasta ahora todo watcher estaba cableado en código; los checks ahora se definen desde la UI, sin código y sin reiniciar. Cuatro tipos — **HTTP** (status esperado más aserción opcional de substring o campo JSON), **puerto TCP**, **comando shell** (exit 0 = sano, el escape universal para cualquier CLI) y **contenedor Docker / unidad systemd** — y cada check declara su punto de observación: `dashboard` sondea por la red y ve lo que ve un usuario real; una clave de servidor ejecuta el probe por el transporte SSH existente y alcanza servicios bindeados a loopback. Ninguna vista sustituye a la otra, y en una flota con firewall típica solo el entrypoint público es siquiera alcanzable desde fuera. La histéresis por check (`N` fallos consecutivos para abrir, `M` éxitos para resolver) dispara alertas `service` normales por el pipeline estándar — ciclo de vida, socket, notificación nativa, webhook y el puente alerta→script, así un servicio caído ofrece su script de remediación en un clic. El panel agrupa los checks por punto de observación con contadores por grupo y una franja de resumen de flota, y cada fila se expande a un timeline tipo status page de resultados recientes con las acciones ahí mismo. Los secretos nunca tocan la base de datos: los valores de cabeceras conservan su forma `${VAR}` y se resuelven desde el entorno del backend al momento de la petición; los cuerpos de respuesta jamás se persisten ni se emiten, solo el veredicto booleano. El análisis de IA recibe el último estado de cada check y su uptime de 24h — y un check que nunca corrió se reporta como *desconocido*, nunca como caído (`GET/POST /api/services`, `PUT/DELETE /api/services/:id`, `POST /api/services/:id/run`, `GET /api/services/:id/history`, evento de socket `check:result`, env `SERVICE_CHECK_CONCURRENCY` / `SERVICE_CHECK_KEEP_DAYS`)
+
+#### Cambiado
+- **Las alertas ganaron una columna `subject`**: la deduplicación de alertas abiertas usaba la llave `(server, type)`, así que dos checks fallando en el mismo host colisionaban — el primero abría la alerta y el segundo se tragaba en silencio, exactamente la falla que los checks de servicio existen para prevenir. `subject` acota la alerta dentro de servidor y tipo (a prueba de NULL, así que todos los tipos existentes se comportan idéntico); también destraba futuras alertas `flapping` por contenedor y `ssl` por certificado, que hoy solo pueden sostener una alerta abierta por servidor
 
 ### [1.11.2] — 2026-07-20
 

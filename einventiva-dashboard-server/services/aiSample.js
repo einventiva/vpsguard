@@ -59,6 +59,32 @@ function slopeDirection(slope, deadband) {
   return slope < 0 ? 'improving' : 'worsening';
 }
 
+// Pure: shape one service check plus its latest recorded result. Same
+// rule formatServerStatus had to learn: a check that has never produced
+// a result is unknown (ok: null), never a failure.
+function formatServiceCheck(check, lastResult, uptime) {
+  const out = {
+    check: check.id,
+    name: check.name,
+    kind: check.kind,
+    // 'dashboard' = probed over the network from the dashboard itself;
+    // anything else is the server key the probe ran on over SSH
+    probedFrom: check.run_from,
+  };
+  if (!check.enabled) return { ...out, ok: null, paused: true };
+  if (!lastResult) {
+    return { ...out, ok: null, note: 'no result recorded yet — health unknown, do not report as down' };
+  }
+  const ok = !!lastResult.ok;
+  return {
+    ...out,
+    ok,
+    latencyMs: lastResult.latency_ms ?? null,
+    error: ok ? null : (lastResult.error || 'check failed'),
+    uptime24hPct: uptime && uptime.total > 0 ? Math.round((uptime.passed / uptime.total) * 1000) / 10 : null,
+  };
+}
+
 function formatAlert(a) {
   return {
     server: a.server, type: a.type, severity: a.severity,
@@ -118,6 +144,15 @@ function buildSample(getServers) {
     replicationLagMB: p.replication_lag_bytes != null ? Math.round(p.replication_lag_bytes / 1048576) : null,
   }));
 
+  // User-defined service checks: the "is the thing on this host actually
+  // answering?" signal that machine metrics cannot see
+  let services = [];
+  try {
+    const latest = new Map(db.getLatestCheckResults().map(r => [r.check_id, r]));
+    const uptime = new Map(db.getCheckUptime(iso(24 * 3600e3)).map(u => [u.check_id, u]));
+    services = db.getServiceChecks().map(c => formatServiceCheck(c, latest.get(c.id), uptime.get(c.id)));
+  } catch (_) { /* DB not available (e.g. unit test) */ }
+
   const scheduled = db.getScripts().filter(s => s.schedule).map(s => ({ id: s.id, schedule: s.schedule, servers: s.schedule_servers }));
   const lastScheduledRuns = db.getLastScheduledExecutions().map(r => ({
     server: r.server, script: r.script_id, exitCode: r.exit_code, at: r.started_at,
@@ -132,6 +167,7 @@ function buildSample(getServers) {
     servers,
     alerts: { active, recentResolved },
     priorAiAlerts,
+    services,
     trends,
     projections,
     postgres: pg,
@@ -171,4 +207,4 @@ function detectMaintenanceWindows(status, now) {
   return windows;
 }
 
-module.exports = { buildSample, formatServerStatus, compressRollup, detectMaintenanceWindows, slopeDirection };
+module.exports = { buildSample, formatServerStatus, formatServiceCheck, compressRollup, detectMaintenanceWindows, slopeDirection };
