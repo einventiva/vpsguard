@@ -135,7 +135,7 @@ function InterpretBlock({ payload, aiConfigured }: {
 }
 
 // Alert types a script can be tagged with (suggestion buttons on alert rows)
-const TAGGABLE_ALERT_TYPES = ['cpu', 'memory', 'disk', 'disk-eta', 'inodes', 'offline', 'cron', 'ssl', 'flapping', 'systemd', 'pg-connections', 'pg-replication', 'script'] as const
+const TAGGABLE_ALERT_TYPES = ['cpu', 'memory', 'disk', 'disk-eta', 'inodes', 'offline', 'cron', 'ssl', 'flapping', 'systemd', 'pg-connections', 'pg-replication', 'script', 'service'] as const
 
 interface ScriptFormData {
   id: string
