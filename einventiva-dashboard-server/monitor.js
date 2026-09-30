@@ -44,7 +44,7 @@ app.use('/api', require('./routes/ai')(getServers, io));
 app.use('/api', require('./routes/alerts')());
 app.use('/api', require('./routes/thresholds')(getServers));
 app.use('/api', require('./routes/projections')(getServers));
-app.use('/api', require('./routes/services')(getServers));
+app.use('/api', require('./routes/services')(getServers, io));
 
 // 404 handler
 app.use((req, res) => {
