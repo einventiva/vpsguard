@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { log, handleError } = require('../services/logger');
 const { KINDS, SERVER_ONLY_KINDS, runCheck, uptimePct } = require('../services/serviceChecks');
+const { sendWebhook } = require('../services/notify');
 
 const SEVERITIES = ['warning', 'critical'];
 // A check that probes faster than this hammers the target more than it
@@ -56,7 +57,7 @@ function validateCheck(body, getServers, { partial = false } = {}) {
   return null;
 }
 
-function createRouter(getServers) {
+function createRouter(getServers, io) {
   const router = express.Router();
 
   // List checks, each with its latest result and 24h availability
@@ -138,9 +139,17 @@ function createRouter(getServers) {
       if (!db.getServiceCheck(id)) {
         return res.status(404).json({ error: `Service check '${id}' not found` });
       }
-      db.deleteServiceCheck(id);
-      log('Service check deleted', { id });
-      res.json({ success: true, id });
+      const { resolvedAlerts } = db.deleteServiceCheck(id);
+      // Announce so open dashboards drop the alert; no native notification,
+      // because the person who just clicked delete does not need a popup
+      // telling them the alert they removed is gone.
+      for (const alert of resolvedAlerts) {
+        log('Alert resolved (its check was deleted)', { id: alert.id, subject: alert.subject });
+        io?.emit('alert:resolved', alert);
+        sendWebhook('resolved', alert);
+      }
+      log('Service check deleted', { id, resolvedAlerts: resolvedAlerts.length });
+      res.json({ success: true, id, resolvedAlerts: resolvedAlerts.length });
     } catch (error) {
       handleError(res, error, `Failed to delete service check '${req.params.id}'`);
     }

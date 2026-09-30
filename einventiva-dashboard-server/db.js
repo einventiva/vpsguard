@@ -3,7 +3,10 @@ const path = require('path');
 const fs = require('fs');
 
 const DATA_DIR = path.join(__dirname, 'data');
-const DB_PATH = path.join(DATA_DIR, 'monitor.db');
+// Overridable so tests can run against a throwaway file. Without this the
+// path was fixed, and anything exercising db.js — including its own test
+// suite — wrote into the live database.
+const DB_PATH = process.env.DB_PATH || path.join(DATA_DIR, 'monitor.db');
 const HISTORY_FILE = path.join(DATA_DIR, 'metrics-history.json');
 
 let db;
@@ -866,9 +869,25 @@ function getServiceChecks() {
   return db.prepare('SELECT * FROM service_checks ORDER BY name').all().map(hydrateCheck);
 }
 
+// Deleting a check must also close any alert it left open. An alert is
+// normally resolved by the check running clean again — but a deleted check
+// never runs, so its alert would stay open forever with nothing able to
+// clear it. Returns the rows that were resolved so the caller can announce
+// them; the whole thing is one transaction, so a check is never removed
+// while its alert survives.
 function deleteServiceCheck(id) {
-  db.prepare('DELETE FROM service_check_results WHERE check_id = ?').run(id);
-  return db.prepare('DELETE FROM service_checks WHERE id = ?').run(id).changes > 0;
+  // Built here, not at module scope: `db` is only assigned by initDB(), so a
+  // transaction created on load would throw on an undefined connection.
+  const tx = db.transaction((checkId) => {
+    const orphaned = db.prepare(
+      "SELECT id FROM alerts WHERE type = 'service' AND subject = ? AND resolved_at IS NULL"
+    ).all(checkId);
+    const resolvedAlerts = orphaned.map(a => resolveAlert(a.id));
+    db.prepare('DELETE FROM service_check_results WHERE check_id = ?').run(checkId);
+    const deleted = db.prepare('DELETE FROM service_checks WHERE id = ?').run(checkId).changes > 0;
+    return { deleted, resolvedAlerts };
+  });
+  return tx(id);
 }
 
 function recordCheckResult({ checkId, ok, latencyMs, statusCode, error }) {
