@@ -1,6 +1,10 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseCrontab, buildCrontabLine } = require('../services/crontab');
+const { execFileSync } = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { parseCrontab, buildCrontabLine, systemCrontabScript } = require('../services/crontab');
 
 describe('parseCrontab', () => {
   it('parses standard cron entries', () => {
@@ -110,5 +114,32 @@ describe('buildCrontabLine', () => {
     const parsed = parseCrontab(original);
     const rebuilt = buildCrontabLine(parsed[0]);
     assert.equal(rebuilt, original);
+  });
+});
+
+describe('systemCrontabScript', () => {
+  // Runs the real shell script: the rule lives in bash, not in JavaScript
+  function listed({ debian }) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'crond-'));
+    try {
+      for (const name of ['backup-db', 'log_rotate', 'old-job.disabled', 'edited.bak']) {
+        fs.writeFileSync(path.join(dir, name), `0 3 * * * root /usr/bin/${name}\n`);
+      }
+      const marker = path.join(dir, debian ? 'marker/debian_version' : 'marker/absent');
+      fs.mkdirSync(path.dirname(marker));
+      if (debian) fs.writeFileSync(marker, '12\n');
+      const out = execFileSync('bash', ['-c', systemCrontabScript(dir, marker)], { encoding: 'utf8' });
+      return [...out.matchAll(/^=== (.+) ===$/gm)].map(m => m[1]).sort();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('skips files Debian-family cron ignores', () => {
+    assert.deepEqual(listed({ debian: true }), ['backup-db', 'log_rotate']);
+  });
+
+  it('keeps dotted names where the rule does not apply', () => {
+    assert.deepEqual(listed({ debian: false }), ['backup-db', 'edited.bak', 'log_rotate', 'old-job.disabled']);
   });
 });

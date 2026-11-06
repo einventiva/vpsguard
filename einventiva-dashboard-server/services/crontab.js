@@ -124,14 +124,24 @@ async function getCrontabEntries(serverKey, getServers) {
   return userEntries;
 }
 
+// Debian-family cron skips any /etc/cron.d file whose name has characters other
+// than letters, digits, underscores and hyphens, so renaming a file to
+// something.disabled is a common way to switch it off. Listing those files
+// would report jobs that never run, and then raise them as overdue. Other
+// distributions do not share the rule, so it applies only on Debian-family hosts.
+function systemCrontabScript(dir = '/etc/cron.d', debianMarker = '/etc/debian_version') {
+  return `for f in ${dir}/*; do [ -f "$f" ] || continue; n=$(basename "$f"); `
+    + `if [ -f ${debianMarker} ]; then case "$n" in *[!A-Za-z0-9_-]*) continue;; esac; fi; `
+    + `echo "=== $n ==="; cat "$f"; done 2>/dev/null`;
+}
+
 async function getSystemCrontabEntries(serverKey, getServers) {
   const servers = getServers();
   const serverConfig = servers[serverKey];
   if (!serverConfig) throw new Error(`Server '${serverKey}' not found`);
 
   try {
-    const script = 'for f in /etc/cron.d/*; do [ -f "$f" ] && echo "=== $(basename $f) ===" && cat "$f"; done 2>/dev/null';
-    const b64 = Buffer.from(script).toString('base64');
+    const b64 = Buffer.from(systemCrontabScript()).toString('base64');
     const cmd = `echo ${b64} | base64 -d | bash`;
     const raw = await executeSSHCommand(serverConfig.alias, cmd);
     return parseSystemCrontabs(raw);
@@ -156,4 +166,4 @@ async function getAllCrontabEntries(serverKey, getServers) {
   return { userEntries, systemEntries, all };
 }
 
-module.exports = { parseCrontab, buildCrontabLine, writeCrontab, getCrontabEntries, getSystemCrontabEntries, getAllCrontabEntries };
+module.exports = { parseCrontab, buildCrontabLine, writeCrontab, getCrontabEntries, getSystemCrontabEntries, getAllCrontabEntries, systemCrontabScript };
