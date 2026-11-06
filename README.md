@@ -255,7 +255,7 @@ The dashboard comes with 12 pre-loaded scripts:
 
 | Script | Description |
 |--------|------------|
-| Docker Prune | Remove unused Docker images, containers, and volumes |
+| Docker Prune | Remove stopped containers, unused networks, images and build cache (keeps volumes) |
 | Clean Logs | Clean old log files and journal entries |
 | Security Scan | Run Lynis security audit |
 | Disk Usage | Show disk usage summary, top directories, and Docker disk usage |
@@ -594,7 +594,7 @@ El dashboard viene con 12 scripts pre-cargados:
 
 | Script | Descripción |
 |--------|------------|
-| Docker Prune | Eliminar imágenes, containers y volúmenes Docker no usados |
+| Docker Prune | Eliminar contenedores detenidos, redes, imágenes y caché de build sin usar (conserva volúmenes) |
 | Clean Logs | Limpiar logs viejos y entradas del journal |
 | Security Scan | Ejecutar auditoría de seguridad Lynis |
 | Disk Usage | Resumen de uso de disco, directorios principales y Docker |

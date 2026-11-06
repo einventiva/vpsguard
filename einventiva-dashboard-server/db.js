@@ -11,9 +11,16 @@ const HISTORY_FILE = path.join(DATA_DIR, 'metrics-history.json');
 
 let db;
 
+// What docker-prune shipped as before it stopped deleting volumes. Unused does
+// not mean disposable: a volume whose stack is down right now counts as unused.
+const LEGACY_DOCKER_PRUNE = {
+  command: 'docker system prune -af --volumes',
+  description: 'Remove unused Docker images and containers',
+};
+
 // ─── Default scripts (seed data) ────────────────────────────────────
 const DEFAULT_SCRIPTS = [
-  { id: 'docker-prune', name: 'Docker Prune', description: 'Remove unused Docker images and containers', command: 'docker system prune -af --volumes', destructive: 1, alertTypes: 'disk,disk-eta' },
+  { id: 'docker-prune', name: 'Docker Prune', description: 'Remove stopped containers, unused networks, images and build cache. Volumes are kept', command: 'docker system prune -af', destructive: 1, alertTypes: 'disk,disk-eta' },
   { id: 'clean-logs', name: 'Clean Logs', description: 'Clean up old log files and journal entries', command: "sudo find /var/log -name '*.gz' -delete && sudo journalctl --vacuum-time=7d", alertTypes: 'disk,disk-eta' },
   { id: 'security-scan', name: 'Security Scan', description: 'Run Lynis security audit', command: 'sudo lynis audit system --quick 2>&1 | tail -30' },
   { id: 'disk-usage', name: 'Disk Usage', description: 'Show disk usage summary, top directories, and Docker disk usage', command: 'echo "=== Disk Usage Summary ==="; df -h / | tail -1; echo; echo "=== Top 20 directories by size (/) ==="; sudo du -sh /* 2>/dev/null | sort -rh | head -20; echo; echo "=== Docker disk usage ==="; docker system df 2>/dev/null', alertTypes: 'disk,disk-eta,inodes' },
@@ -248,6 +255,16 @@ function initDB() {
     db.exec('ALTER TABLE script_executions ADD COLUMN output TEXT');
     console.log('[db] Migrated script_executions: added output column');
   }
+  // Rewrites only what still matches the shipped text, so a command or
+  // description the user edited stays theirs. Runs before the backfills
+  // below, which recognise untouched seeds by their current command.
+  const dockerPrune = DEFAULT_SCRIPTS.find(sc => sc.id === 'docker-prune');
+  db.prepare("UPDATE scripts SET description = ? WHERE id = 'docker-prune' AND description = ? AND command = ?")
+    .run(dockerPrune.description, LEGACY_DOCKER_PRUNE.description, LEGACY_DOCKER_PRUNE.command);
+  const prunedVolumes = db.prepare("UPDATE scripts SET command = ? WHERE id = 'docker-prune' AND command = ?")
+    .run(dockerPrune.command, LEGACY_DOCKER_PRUNE.command);
+  if (prunedVolumes.changes) console.log('[db] Migrated docker-prune: it no longer deletes volumes');
+
   if (!hasColumn('scripts', 'destructive')) {
     db.exec('ALTER TABLE scripts ADD COLUMN destructive INTEGER DEFAULT 0');
     const seeded = DEFAULT_SCRIPTS.filter(s => s.destructive).map(s => s.id);

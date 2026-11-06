@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.12.1] — 2026-11-06
+
+#### Fixed
+- **Docker Prune could delete data**: the seeded `docker-prune` script ran `docker system prune -af --volumes`, and a volume counts as unused whenever its stack happens to be down, so a disk cleanup could erase a stopped database. It now runs `docker system prune -af` and keeps volumes. Existing installs are migrated on startup, unless the command was edited, which is left alone. The script stays flagged as destructive. **If you want the old behavior, add `--volumes` back to the command in the Scripts panel**
+- **False overdue alerts for disabled cron files**: Debian-family cron skips `/etc/cron.d` files whose names contain anything but letters, digits, underscores and hyphens, so renaming a file to `job.disabled` switches it off. The monitor still listed those files and then alerted that their jobs had not run. They are now skipped on Debian-family hosts; other distributions keep listing every file
+
 ### [1.12.0] — 2026-07-22
 
 #### Added
@@ -175,6 +181,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.12.1] — 2026-11-06
+
+#### Corregido
+- **Docker Prune podía borrar datos**: el script `docker-prune` de fábrica corría `docker system prune -af --volumes`, y un volumen cuenta como no usado cuando su stack está abajo, así que una limpieza de disco podía borrar una base de datos detenida. Ahora corre `docker system prune -af` y conserva los volúmenes. Las instalaciones existentes se migran al arrancar, salvo si el comando fue editado, en cuyo caso no se toca. El script sigue marcado como destructivo. **Si quieres el comportamiento anterior, agrega `--volumes` al comando en el panel de Scripts**
+- **Alertas falsas de cron vencido por archivos desactivados**: el cron de la familia Debian ignora los archivos de `/etc/cron.d` cuyo nombre tenga algo distinto de letras, dígitos, guiones bajos y guiones, así que renombrar un archivo a `job.disabled` lo desactiva. El monitor seguía listándolos y luego alertaba que sus jobs no habían corrido. Ahora se omiten en hosts de la familia Debian; las demás distribuciones siguen listando todos los archivos
 
 ### [1.12.0] — 2026-07-22
 
