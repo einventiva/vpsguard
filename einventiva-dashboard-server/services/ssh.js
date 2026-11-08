@@ -65,11 +65,16 @@ async function executeSSHCommand(serverAlias, command, timeout = COMMAND_TIMEOUT
     const sshCommand = `ssh ${muxOpts} ${serverAlias} "${command}"`;
     log(`Executing SSH command`, { server: serverAlias, command: maskSudoPassword(command).substring(0, 100) });
     const { stdout, stderr } = await execPromise(sshCommand, { timeout });
+    recordMuxOutcome(serverAlias, false);
     if (stderr && !stderr.includes('Warning')) {
       log(`SSH command stderr`, { server: serverAlias, stderr: stderr.substring(0, 200) });
     }
     return stdout;
   } catch (error) {
+    if (recordMuxOutcome(serverAlias, Boolean(error.killed))) {
+      log(`SSH mux looks wedged, resetting it`, { server: serverAlias, consecutiveTimeouts: MUX_RESET_AFTER_TIMEOUTS });
+      resetMuxConnection(serverAlias);
+    }
     // exec's own message is "Command failed: <the entire ssh line>" — for a
     // base64-piped probe that is a wall of noise carrying no reason at all.
     // Worse, a kill-on-timeout leaves stderr empty, so without this a probe
@@ -101,6 +106,46 @@ function closeMuxConnection(serverAlias) {
   exec(`ssh -o ControlPath=${controlPath} -O exit ${serverAlias} 2>/dev/null`);
 }
 
+// ─── Wedged-mux recovery ───────────────────────────────────────────
+// After a network drop the shared master can stay "running" while every
+// session sent through it hangs: the host answers a direct ssh in a second,
+// yet each multiplexed command times out. Killing the client on timeout does
+// not help — the master holds the client's stdio, so the exec callback only
+// fires when the master lets go (minutes later). Nothing ever closes the
+// master, so the monitor stayed blind for hours. Count consecutive timeouts
+// per server and, past a threshold, tear the master down so the next command
+// opens a fresh connection.
+const MUX_RESET_AFTER_TIMEOUTS = 3;
+const MUX_EXIT_TIMEOUT = 5000;
+const muxTimeouts = new Map();
+
+// Returns true when this outcome should trigger a reset (and restarts the count).
+function recordMuxOutcome(serverAlias, timedOut) {
+  if (!timedOut) {
+    muxTimeouts.delete(serverAlias);
+    return false;
+  }
+  const count = (muxTimeouts.get(serverAlias) || 0) + 1;
+  if (count >= MUX_RESET_AFTER_TIMEOUTS) {
+    muxTimeouts.delete(serverAlias);
+    return true;
+  }
+  muxTimeouts.set(serverAlias, count);
+  return false;
+}
+
+function resetMuxConnection(serverAlias, { execFn = exec, unlink = fs.rmSync } = {}) {
+  const controlPath = getControlPath(serverAlias);
+  // -O exit ends the master and every session hanging on it, which also
+  // releases the pending exec callbacks. If the master does not answer, drop
+  // the socket so the next ssh starts a new master instead of reusing it.
+  execFn(`ssh -o ControlPath=${controlPath} -O exit ${serverAlias}`, { timeout: MUX_EXIT_TIMEOUT }, (err) => {
+    if (!err) return;
+    try { unlink(controlPath, { force: true }); } catch (_) { /* already gone */ }
+    log(`SSH mux exit failed, removed control socket`, { server: serverAlias });
+  });
+}
+
 function closeAllMuxConnections() {
   try {
     if (!fs.existsSync(CONTROL_DIR)) return;
@@ -113,4 +158,4 @@ function closeAllMuxConnections() {
   } catch (_) { /* ignore cleanup errors */ }
 }
 
-module.exports = { executeSSHCommand, describeExecFailure, filterWarnings, isSSHWarning, injectSudoPassword, maskSudoPassword, getMuxOpts, closeMuxConnection, closeAllMuxConnections, exec };
+module.exports = { executeSSHCommand, describeExecFailure, filterWarnings, isSSHWarning, injectSudoPassword, maskSudoPassword, getMuxOpts, closeMuxConnection, closeAllMuxConnections, recordMuxOutcome, resetMuxConnection, MUX_RESET_AFTER_TIMEOUTS, exec };
