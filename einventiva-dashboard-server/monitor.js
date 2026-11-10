@@ -9,7 +9,7 @@ const { log } = require('./services/logger');
 const { handleError } = require('./services/logger');
 const { httpAuth, socketAuth } = require('./middleware/auth');
 const { registerHandlers } = require('./websocket/handlers');
-const { startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop, startServiceCheckLoop } = require('./services/backgroundJobs');
+const { startWakeGuard, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop, startServiceCheckLoop } = require('./services/backgroundJobs');
 
 // ─── Express + HTTP Server ──────────────────────────────────────────
 const app = express();
@@ -121,6 +121,7 @@ if (dbServers) {
   log(`Seeded servers from env vars, total: ${Object.keys(SERVERS).length}`);
 }
 
+startWakeGuard();
 startMetricsLoop(io, getServers);
 startPruneLoop();
 startRollupLoop();

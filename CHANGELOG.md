@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.12.2] — 2026-11-10
+
+#### Fixed
+- **Alert storms when the monitor's laptop sleeps**: while the machine sleeps the backend is frozen, and on waking, fully or for a few seconds of dark wake, the network and SSH masters are not back yet. Every probe in that window failed, so one night with the lid closed could open hundreds of `offline` and `service` alerts against healthy servers. A heartbeat now notices when the process was frozen, and for `WAKE_GRACE_SEC` seconds afterwards (default 180, `0` turns it off) unreachable samples and failed service checks are not recorded and do not count toward opening an alert. Successful results are still recorded and still resolve alerts, so a real outage opens its alert once the grace is over
+- **Monitor stayed blind on a server for hours after a network drop**: the SSH ControlMaster could stay up while every session through it hung. After 3 consecutive timeouts on the same server the master is now closed, so the next command opens a fresh connection (#63)
+
 ### [1.12.1] — 2026-11-06
 
 #### Fixed
@@ -181,6 +187,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.12.2] — 2026-11-10
+
+#### Corregido
+- **Tormentas de alertas cuando la laptop del monitor se suspende**: mientras el equipo duerme, el backend queda congelado, y al despertar, del todo o unos segundos en un dark wake, la red y los masters de SSH todavía no vuelven. Todas las pruebas de esa ventana fallaban, así que una noche con la tapa cerrada podía abrir cientos de alertas `offline` y `service` contra servidores sanos. Ahora un latido detecta que el proceso estuvo congelado y, durante `WAKE_GRACE_SEC` segundos después (180 por defecto, `0` lo desactiva), las muestras sin conexión y los checks de servicio fallidos no se registran ni cuentan para abrir una alerta. Los resultados exitosos se siguen registrando y siguen cerrando alertas, así que una caída real abre su alerta al terminar el periodo de gracia
+- **El monitor quedaba ciego horas sobre un servidor tras un corte de red**: el ControlMaster de SSH podía seguir arriba mientras cada sesión a través de él se colgaba. Ahora, tras 3 timeouts seguidos en el mismo servidor, se cierra el master y el siguiente comando abre una conexión nueva (#63)
 
 ### [1.12.1] — 2026-11-06
 

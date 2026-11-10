@@ -189,6 +189,8 @@ PG_REPL_LAG_ALERT_MB=100
 # Service checks: max concurrent probes (default 8) and result retention in days (default 30)
 # SERVICE_CHECK_CONCURRENCY=8
 # SERVICE_CHECK_KEEP_DAYS=30
+# Seconds to ignore offline samples and failed service checks after the monitor's host wakes from sleep (default 180, 0 = off)
+# WAKE_GRACE_SEC=180
 ```
 
 Start the backend:
@@ -528,6 +530,8 @@ PG_REPL_LAG_ALERT_MB=100
 # Checks de servicio: probes concurrentes máximos (default 8) y retención de resultados en días (default 30)
 # SERVICE_CHECK_CONCURRENCY=8
 # SERVICE_CHECK_KEEP_DAYS=30
+# Segundos en que se ignoran muestras sin conexión y checks fallidos después de que el equipo del monitor despierta (default 180, 0 = apagado)
+# WAKE_GRACE_SEC=180
 ```
 
 Inicia el backend:
