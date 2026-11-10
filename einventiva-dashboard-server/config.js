@@ -103,6 +103,11 @@ const SERVICE_CHECK_STARTUP_DELAY = 20 * 1000;
 const SERVICE_CHECK_CONCURRENCY = parseInt(process.env.SERVICE_CHECK_CONCURRENCY || '8');
 const SERVICE_CHECK_KEEP_DAYS = parseInt(process.env.SERVICE_CHECK_KEEP_DAYS || '30');
 
+// After the host running the monitor wakes from sleep, the network takes a
+// moment to come back; offline samples and failed service checks in this
+// window are ignored instead of opening alerts. 0 turns the guard off
+const WAKE_GRACE_SEC = parseInt(process.env.WAKE_GRACE_SEC || '180');
+
 // ─── Server parsing ─────────────────────────────────────────────────
 
 function parseServersFromEnv() {
@@ -198,6 +203,7 @@ module.exports = {
   PG_REPL_LAG_ALERT_MB,
   PG_USER_OVERRIDES,
   SERVICE_CHECK_TICK,
+  WAKE_GRACE_SEC,
   SERVICE_CHECK_STARTUP_DELAY,
   SERVICE_CHECK_CONCURRENCY,
   SERVICE_CHECK_KEEP_DAYS,

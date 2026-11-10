@@ -16,6 +16,7 @@ const { runAnalysis, isConfigured: aiConfigured, toClientShape, groupFindingsFor
 const { sendCustomNotification } = require('./alerts');
 const { sendWebhook } = require('./notify');
 const { setCache } = require('./cache');
+const { createWakeGuard, startHeartbeat } = require('./wakeGuard');
 const {
   METRICS_INTERVAL, STATUS_CACHE_TTL, DETAIL_EVERY_CYCLES, PRUNE_INTERVAL, PRUNE_STARTUP_DELAY, PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS,
   ROLLUP_INTERVAL, ROLLUP_STARTUP_DELAY, ROLLUP_KEEP_DAYS,
@@ -24,7 +25,18 @@ const {
   ALERT_SAMPLES_TO_OPEN, ALERT_SAMPLES_TO_RESOLVE, SCRIPT_TIMEOUT,
   AI_ANALYSIS_SCHEDULE, AI_OPEN_ALERTS,
   SERVICE_CHECK_TICK, SERVICE_CHECK_STARTUP_DELAY, SERVICE_CHECK_CONCURRENCY, SERVICE_CHECK_KEEP_DAYS,
+  WAKE_GRACE_SEC,
 } = require('../config');
+
+// Shared by every probing loop: see services/wakeGuard.js
+const wakeGuard = createWakeGuard({
+  graceMs: WAKE_GRACE_SEC * 1000,
+  onWake: ({ sleptMs }) => log('Host woke from sleep, ignoring probe failures for a while', { sleptSec: Math.round(sleptMs / 1000), graceSec: WAKE_GRACE_SEC }),
+});
+
+function startWakeGuard() {
+  startHeartbeat(wakeGuard);
+}
 
 async function fetchAllServerStatus(getServers) {
   const SERVERS = getServers();
@@ -110,6 +122,11 @@ function startMetricsLoop(io, getServers) {
           disk: diskPercent,
           online: data.status === 'connected'
         };
+
+        // An unreachable server right after the monitor wakes is the
+        // monitor's own network, not an outage: keep it out of history
+        // and away from the offline alert
+        if (!entry.online && wakeGuard.suppressing()) continue;
 
         db.appendMetric(key, entry);
 
@@ -520,6 +537,9 @@ async function executeCheck(io, check, getServers) {
   st.running = true;
   try {
     const result = await runCheck(check, { getServers });
+    // Same reasoning as the offline sample: a failure right after waking
+    // is not recorded and does not count toward opening the alert
+    if (!result.ok && wakeGuard.suppressing()) return;
     db.recordCheckResult({ checkId: check.id, ...result });
     // The 24h aggregates ship with the result: a client that only ever
     // patched the status would show a red check sitting next to a 100%
@@ -592,4 +612,4 @@ function startServiceCheckLoop(io, getServers) {
   setInterval(run, SERVICE_CHECK_TICK);
 }
 
-module.exports = { fetchAllServerStatus, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop, startServiceCheckLoop, afterAiAnalysis, runSlowChecks, runPgSampling, runScheduledScripts, runDueChecks };
+module.exports = { fetchAllServerStatus, startWakeGuard, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop, startServiceCheckLoop, afterAiAnalysis, runSlowChecks, runPgSampling, runScheduledScripts, runDueChecks };
