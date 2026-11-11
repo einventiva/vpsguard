@@ -191,6 +191,10 @@ PG_REPL_LAG_ALERT_MB=100
 # SERVICE_CHECK_KEEP_DAYS=30
 # Seconds to ignore offline samples and failed service checks after the monitor's host wakes from sleep (default 180, 0 = off)
 # WAKE_GRACE_SEC=180
+# Tailscale guard: one `network` alert and paused SSH failures while the monitor is off the tailnet (auto|on|off, default auto = on when the CLI is found)
+# TAILSCALE_GUARD=auto
+# TAILSCALE_BIN=/opt/homebrew/bin/tailscale
+# TAILSCALE_CHECK_SEC=30
 ```
 
 Start the backend:
@@ -532,6 +536,10 @@ PG_REPL_LAG_ALERT_MB=100
 # SERVICE_CHECK_KEEP_DAYS=30
 # Segundos en que se ignoran muestras sin conexión y checks fallidos después de que el equipo del monitor despierta (default 180, 0 = apagado)
 # WAKE_GRACE_SEC=180
+# Guardia de Tailscale: una alerta `network` y fallos por SSH en pausa mientras el monitor está fuera de la tailnet (auto|on|off, default auto = activa si encuentra el CLI)
+# TAILSCALE_GUARD=auto
+# TAILSCALE_BIN=/opt/homebrew/bin/tailscale
+# TAILSCALE_CHECK_SEC=30
 ```
 
 Inicia el backend:
