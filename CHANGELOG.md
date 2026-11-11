@@ -10,6 +10,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## English
 
+### [1.13.0] — 2026-11-11
+
+#### Added
+- **Tailscale guard — one clear alert when the monitor itself drops off the tailnet**: the servers are reached over Tailscale, so when the monitor's host is logged out, its node key expires, `tailscaled` stops, or an ACL leaves it with no visible peers, every SSH probe times out. The monitor used to blame the servers and opened one `offline` and one `service` alert per healthy host (23 at once in the incident that motivated this). Every 30s (`TAILSCALE_CHECK_SEC`) and whenever an SSH probe fails, the backend now asks the local `tailscale status --json` whether the node is `Running` with at least one online peer. While it is not, a single critical `network` alert opens against `monitor`, saying why (logged out, or running with no peers, which points at ACLs or tags), and failed SSH samples and checks are ignored, exactly like the wake-from-sleep grace. Successful results still record and resolve, and `dashboard` checks, which probe over the public network, keep reporting. `TAILSCALE_GUARD=auto` (default) enables it when the CLI is found; `on`, `off` and `TAILSCALE_BIN` override
+
 ### [1.12.2] — 2026-11-10
 
 #### Fixed
@@ -187,6 +192,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ---
 
 ## Español
+
+### [1.13.0] — 2026-11-11
+
+#### Agregado
+- **Guardia de Tailscale: una sola alerta clara cuando el propio monitor sale de la tailnet**: los servidores se alcanzan por Tailscale, así que cuando el equipo del monitor se queda sin sesión, le caduca la llave del nodo, se detiene `tailscaled` o una ACL lo deja sin pares visibles, todas las pruebas por SSH agotan el tiempo. El monitor culpaba a los servidores y abría una alerta `offline` y una `service` por cada host sano (23 de golpe en el incidente que motivó este cambio). Cada 30 s (`TAILSCALE_CHECK_SEC`) y cada vez que falla una prueba por SSH, el backend pregunta a `tailscale status --json` si el nodo está `Running` con al menos un par en línea. Mientras no lo esté, se abre una sola alerta crítica `network` contra `monitor` que dice por qué (sin sesión, o en marcha sin pares, lo que apunta a ACLs o etiquetas), y las muestras y checks por SSH fallidos se ignoran, igual que en el periodo de gracia al despertar. Los resultados exitosos se siguen registrando y siguen cerrando alertas, y los checks `dashboard`, que prueban por la red pública, siguen reportando. `TAILSCALE_GUARD=auto` (por defecto) la activa cuando encuentra el CLI; `on`, `off` y `TAILSCALE_BIN` lo ajustan
 
 ### [1.12.2] — 2026-11-10
 

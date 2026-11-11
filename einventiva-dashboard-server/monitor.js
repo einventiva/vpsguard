@@ -9,7 +9,7 @@ const { log } = require('./services/logger');
 const { handleError } = require('./services/logger');
 const { httpAuth, socketAuth } = require('./middleware/auth');
 const { registerHandlers } = require('./websocket/handlers');
-const { startWakeGuard, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop, startServiceCheckLoop } = require('./services/backgroundJobs');
+const { startWakeGuard, startNetworkGuard, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop, startServiceCheckLoop } = require('./services/backgroundJobs');
 
 // ─── Express + HTTP Server ──────────────────────────────────────────
 const app = express();
@@ -122,6 +122,7 @@ if (dbServers) {
 }
 
 startWakeGuard();
+startNetworkGuard(io);
 startMetricsLoop(io, getServers);
 startPruneLoop();
 startRollupLoop();

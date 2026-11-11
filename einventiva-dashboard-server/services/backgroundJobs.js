@@ -17,6 +17,7 @@ const { sendCustomNotification } = require('./alerts');
 const { sendWebhook } = require('./notify');
 const { setCache } = require('./cache');
 const { createWakeGuard, startHeartbeat } = require('./wakeGuard');
+const { createNetworkGuard, findTailscaleBin, probeTailscale } = require('./networkGuard');
 const {
   METRICS_INTERVAL, STATUS_CACHE_TTL, DETAIL_EVERY_CYCLES, PRUNE_INTERVAL, PRUNE_STARTUP_DELAY, PRUNE_KEEP_DAYS, DETAIL_KEEP_DAYS,
   ROLLUP_INTERVAL, ROLLUP_STARTUP_DELAY, ROLLUP_KEEP_DAYS,
@@ -25,7 +26,7 @@ const {
   ALERT_SAMPLES_TO_OPEN, ALERT_SAMPLES_TO_RESOLVE, SCRIPT_TIMEOUT,
   AI_ANALYSIS_SCHEDULE, AI_OPEN_ALERTS,
   SERVICE_CHECK_TICK, SERVICE_CHECK_STARTUP_DELAY, SERVICE_CHECK_CONCURRENCY, SERVICE_CHECK_KEEP_DAYS,
-  WAKE_GRACE_SEC,
+  WAKE_GRACE_SEC, TAILSCALE_GUARD, TAILSCALE_BIN, TAILSCALE_CHECK_INTERVAL,
 } = require('../config');
 
 // Shared by every probing loop: see services/wakeGuard.js
@@ -36,6 +37,53 @@ const wakeGuard = createWakeGuard({
 
 function startWakeGuard() {
   startHeartbeat(wakeGuard);
+}
+
+// Shared by every SSH probe: see services/networkGuard.js
+const tailscaleBin = TAILSCALE_GUARD === 'off' ? null : (TAILSCALE_BIN || findTailscaleBin());
+if (TAILSCALE_GUARD === 'on' && !tailscaleBin) {
+  log('TAILSCALE_GUARD=on but the tailscale CLI was not found; set TAILSCALE_BIN');
+}
+const networkGuard = createNetworkGuard({
+  probe: tailscaleBin ? () => probeTailscale(tailscaleBin) : null,
+});
+
+// A failed SSH probe is the monitor's problem, not the server's, when the
+// host just woke up or is off the tailnet. Only asked on failure, so a
+// healthy fleet never pays for the CLI call
+async function sshFailureIgnored() {
+  if (wakeGuard.suppressing()) return true;
+  return networkGuard.isDown();
+}
+
+// The network alert is attributed to the monitor itself, not a server
+const MONITOR_KEY = 'monitor';
+
+async function runNetworkGuard(io) {
+  const st = await networkGuard.status({ force: true });
+  const open = db.getOpenAlert(MONITOR_KEY, 'network');
+  if (!st.ok && !open) log('Monitor is off the tailnet, ignoring SSH probe failures', st);
+  if (st.ok && open) log('Monitor is back on the tailnet', { peersOnline: st.peersOnline });
+  transitionAlert(io, {
+    server: MONITOR_KEY,
+    type: 'network',
+    active: !st.ok,
+    severity: 'critical',
+    message: st.ok ? '' : `Monitor lost the private network: ${st.reason}. Server checks over SSH are paused until it returns`,
+    value: st.peersOnline,
+  });
+  return st;
+}
+
+function startNetworkGuard(io) {
+  if (!networkGuard.enabled) {
+    log('Tailscale guard disabled', { reason: TAILSCALE_GUARD === 'off' ? 'TAILSCALE_GUARD=off' : 'tailscale CLI not found' });
+    return;
+  }
+  log('Tailscale guard enabled', { bin: tailscaleBin, intervalSec: TAILSCALE_CHECK_INTERVAL / 1000 });
+  const run = () => runNetworkGuard(io).catch(e => log('Tailscale guard failed', { error: e.message }));
+  run();
+  setInterval(run, TAILSCALE_CHECK_INTERVAL);
 }
 
 async function fetchAllServerStatus(getServers) {
@@ -126,7 +174,7 @@ function startMetricsLoop(io, getServers) {
         // An unreachable server right after the monitor wakes is the
         // monitor's own network, not an outage: keep it out of history
         // and away from the offline alert
-        if (!entry.online && wakeGuard.suppressing()) continue;
+        if (!entry.online && await sshFailureIgnored()) continue;
 
         db.appendMetric(key, entry);
 
@@ -538,8 +586,15 @@ async function executeCheck(io, check, getServers) {
   try {
     const result = await runCheck(check, { getServers });
     // Same reasoning as the offline sample: a failure right after waking
-    // is not recorded and does not count toward opening the alert
-    if (!result.ok && wakeGuard.suppressing()) return;
+    // is not recorded and does not count toward opening the alert. Off
+    // the tailnet only SSH checks are blind; a `dashboard` check probes
+    // over the public network and keeps reporting
+    if (!result.ok) {
+      const ignored = check.run_from === 'dashboard'
+        ? wakeGuard.suppressing()
+        : await sshFailureIgnored();
+      if (ignored) return;
+    }
     db.recordCheckResult({ checkId: check.id, ...result });
     // The 24h aggregates ship with the result: a client that only ever
     // patched the status would show a red check sitting next to a 100%
@@ -612,4 +667,4 @@ function startServiceCheckLoop(io, getServers) {
   setInterval(run, SERVICE_CHECK_TICK);
 }
 
-module.exports = { fetchAllServerStatus, startWakeGuard, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop, startServiceCheckLoop, afterAiAnalysis, runSlowChecks, runPgSampling, runScheduledScripts, runDueChecks };
+module.exports = { fetchAllServerStatus, startWakeGuard, startNetworkGuard, runNetworkGuard, startMetricsLoop, startPruneLoop, startRollupLoop, startSlowCheckLoop, startPgSampleLoop, startSchedulerLoop, startAiAnalysisLoop, startServiceCheckLoop, afterAiAnalysis, runSlowChecks, runPgSampling, runScheduledScripts, runDueChecks };

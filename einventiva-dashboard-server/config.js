@@ -108,6 +108,14 @@ const SERVICE_CHECK_KEEP_DAYS = parseInt(process.env.SERVICE_CHECK_KEEP_DAYS || 
 // window are ignored instead of opening alerts. 0 turns the guard off
 const WAKE_GRACE_SEC = parseInt(process.env.WAKE_GRACE_SEC || '180');
 
+// Tailscale guard: when the monitor's host is off the tailnet, raise one
+// `network` alert and ignore SSH probe failures. auto = on when the
+// tailscale CLI is found; on = require it; off = disabled.
+// TAILSCALE_BIN overrides the CLI path
+const TAILSCALE_GUARD = (process.env.TAILSCALE_GUARD || 'auto').toLowerCase();
+const TAILSCALE_BIN = process.env.TAILSCALE_BIN || '';
+const TAILSCALE_CHECK_INTERVAL = parseInt(process.env.TAILSCALE_CHECK_SEC || '30') * 1000;
+
 // ─── Server parsing ─────────────────────────────────────────────────
 
 function parseServersFromEnv() {
@@ -204,6 +212,9 @@ module.exports = {
   PG_USER_OVERRIDES,
   SERVICE_CHECK_TICK,
   WAKE_GRACE_SEC,
+  TAILSCALE_GUARD,
+  TAILSCALE_BIN,
+  TAILSCALE_CHECK_INTERVAL,
   SERVICE_CHECK_STARTUP_DELAY,
   SERVICE_CHECK_CONCURRENCY,
   SERVICE_CHECK_KEEP_DAYS,

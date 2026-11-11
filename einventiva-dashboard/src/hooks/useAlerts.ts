@@ -46,6 +46,7 @@ export function useAlerts(): UseAlertsReturn {
       script: 'Scheduled script failing',
       ai: 'AI analysis findings',
       service: 'Service check failing',
+      network: 'Monitor off the private network',
     }
 
     const onOpened = (alert: Alert) => {

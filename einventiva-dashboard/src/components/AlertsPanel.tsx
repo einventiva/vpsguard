@@ -54,6 +54,7 @@ const TYPE_LABELS: Record<Alert['type'], string> = {
   script: 'SCRIPT',
   ai: 'AI',
   service: 'SERVICE',
+  network: 'NETWORK',
 }
 
 function AlertRow({ alert, serverName, onAck, suggestions, onOpenScript }: {
